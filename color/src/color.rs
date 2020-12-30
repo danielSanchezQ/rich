@@ -358,3 +358,30 @@ impl Color {
         }
     }
 }
+
+/// Parse six hex characters in to RGB triplet
+pub fn parse_rgb_hex(hex_color: &str) -> ColorTriplet {
+    assert_eq!(
+        hex_color.len(),
+        6,
+        "Hex color must be 6 characters long, found {}",
+        hex_color.len()
+    );
+    let r = u8::from_str_radix(&hex_color[0..2], 16).expect("Valid u8 hex encoded red value");
+    let g = u8::from_str_radix(&hex_color[2..4], 16).expect("Valid u8 hex encoded green value");
+    let b = u8::from_str_radix(&hex_color[4..6], 16).expect("Valid u8 hex encoded blue value");
+    ColorTriplet::from((r, g, b))
+}
+
+/// Blend one RGB color in to another
+pub fn blend_rgb(
+    color1: ColorTriplet,
+    color2: ColorTriplet,
+    cross_fade: Option<f32>,
+) -> ColorTriplet {
+    let cross_fade = cross_fade.unwrap_or(0.5f32);
+    let r = color1.red as f32 + (color2.red as f32 - color1.red as f32) * cross_fade;
+    let g = color1.green as f32 + (color2.green as f32 - color1.green as f32) * cross_fade;
+    let b = color1.blue as f32 + (color2.blue as f32 - color1.blue as f32) * cross_fade;
+    ColorTriplet::from((r as u8, g as u8, b as u8))
+}

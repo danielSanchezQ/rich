@@ -2,9 +2,9 @@ pub type ColortripletRaw = (u8, u8, u8);
 
 #[derive(Clone, Copy)]
 pub struct ColorTriplet {
-    red: u8,
-    green: u8,
-    blue: u8,
+    pub red: u8,
+    pub green: u8,
+    pub blue: u8,
 }
 
 impl From<ColortripletRaw> for ColorTriplet {
