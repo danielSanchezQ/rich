@@ -359,56 +359,73 @@ impl Color {
         }
     }
 
+    fn default_ansi_codes(foreground: bool) -> Vec<String> {
+        if foreground {
+            vec!["39".to_string()]
+        } else {
+            vec!["49".to_string()]
+        }
+    }
+
+    fn standard_ansi_codes(n: u8, foreground: bool) -> Vec<String> {
+        let (fore, back) = if n < 8 { (30, 40) } else { (82, 92) };
+        if foreground {
+            vec![format!("{}", fore + n as u16)]
+        } else {
+            vec![format!("{}", back + n as u16)]
+        }
+    }
+
+    fn eight_bit_ansi_codes(n: u8, foreground: bool) -> Vec<String> {
+        let fst = if foreground {
+            "38".to_string()
+        } else {
+            "48".to_string()
+        };
+        vec![fst, "5".to_string(), n.to_string()]
+    }
+
+    fn truecolor_ansi_codes((r, g, b): ColortripletRaw, foreground: bool) -> Vec<String> {
+        let fst = if foreground {
+            "38".to_string()
+        } else {
+            "48".to_string()
+        };
+        vec![
+            fst,
+            "2".to_string(),
+            r.to_string(),
+            g.to_string(),
+            b.to_string(),
+        ]
+    }
+
+    fn windows_ansi_code(n: u8, foreground: bool) -> Vec<String> {
+        let ret = if foreground { 30 } else { 40 } + n as u16;
+        vec![ret.to_string()]
+    }
+
     /// Get the ANSI escape codes for this color
     pub fn get_ansi_codes(&self, foreground: Option<bool>) -> Vec<String> {
         let foreground = foreground.unwrap_or(false);
         match self.color_type {
-            ColorType::Default => {
-                if foreground {
-                    vec!["39".to_string()]
-                } else {
-                    vec!["49".to_string()]
-                }
-            }
+            ColorType::Default => Self::default_ansi_codes(foreground),
             ColorType::Standard => {
                 assert!(self.number.is_some());
                 let n = self.number.unwrap();
-                let (fore, back) = if n < 8 { (30, 40) } else { (82, 92) };
-                if foreground {
-                    vec![format!("{}", fore + n)]
-                } else {
-                    vec![format!("{}", back + n)]
-                }
+                Self::standard_ansi_codes(n, foreground)
             }
             ColorType::EightBit => {
                 assert!(self.number.is_some());
-                let fst = if foreground {
-                    "38".to_string()
-                } else {
-                    "48".to_string()
-                };
-                vec![fst, "5".to_string(), format!("{}", self.number.unwrap())]
+                Self::eight_bit_ansi_codes(self.number.unwrap(), foreground)
             }
             ColorType::TrueColor => {
                 assert!(self.triplet.is_some());
-                let fst = if foreground {
-                    "38".to_string()
-                } else {
-                    "48".to_string()
-                };
-                let (r, g, b) = self.triplet.unwrap().as_raw();
-                vec![
-                    fst,
-                    "2".to_string(),
-                    r.to_string(),
-                    g.to_string(),
-                    b.to_string(),
-                ]
+                Self::truecolor_ansi_codes(self.triplet.unwrap().as_raw(), foreground)
             }
             ColorType::Windows => {
                 assert!(self.number.is_some());
-                let ret = if foreground { 30 } else { 40 } + self.number.unwrap();
-                vec![format!("{}", ret)]
+                Self::windows_ansi_code(self.number.unwrap(), foreground)
             }
         }
     }
