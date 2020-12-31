@@ -1,5 +1,7 @@
 pub type ColortripletRaw = (u8, u8, u8);
 
+pub type ColortripletRawNormalized = (f32, f32, f32);
+
 #[derive(Clone, Copy)]
 pub struct ColorTriplet {
     pub red: u8,

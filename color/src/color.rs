@@ -4,13 +4,14 @@ use std::fmt::{Display, Formatter};
 
 use lazy_static::lazy_static;
 
+use crate::triplet::ColortripletRawNormalized;
 use crate::{
     palette::{EIGHT_BIT_PALETTE, STANDARD_PALETTE, WINDOWS_PALETTE},
     terminal_theme::{TerminalTheme, DEFAULT_TERMINAL_THEME},
     triplet::{ColorTriplet, ColortripletRaw},
 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum ColorSystem {
     Standard,
     EightBit,
@@ -18,7 +19,7 @@ pub enum ColorSystem {
     Windows,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum ColorType {
     Default,
     Standard,
@@ -249,15 +250,16 @@ lazy_static! {
 }
 
 /// Terminal color definition
+#[derive(Clone)]
 pub struct Color {
     /// The name of the color (typically the input to Color.parse)
-    name: String,
+    pub name: String,
     /// They type of the color
-    color_type: ColorType,
+    pub color_type: ColorType,
     /// The color number, if a standard color, or None
-    number: Option<u8>,
+    pub number: Option<u8>,
     /// A triplet of color components, if an RGB color
-    triplet: Option<ColorTriplet>,
+    pub triplet: Option<ColorTriplet>,
 }
 
 impl Display for Color {
@@ -427,6 +429,55 @@ impl Color {
                 assert!(self.number.is_some());
                 Self::windows_ansi_code(self.number.unwrap(), foreground)
             }
+        }
+    }
+
+    /// Downgrade a color system to a system with fewer colors
+    pub fn downgrade(&self, system: ColorSystem) -> Self {
+        if matches!(self.color_type, ColorType::Default) {
+            return self.clone();
+        }
+        if ColorSystem::from(self.color_type) == system {
+            return self.clone();
+        }
+        if matches!(
+            (system, self.system()),
+            (ColorSystem::EightBit, ColorSystem::TrueColor)
+        ) {
+            assert!(self.triplet.is_some());
+            return truecolor_2_eightbit(self.name.clone(), self.triplet.unwrap().normalized());
+        }
+        self.clone()
+    }
+}
+
+fn truecolor_2_eightbit(name: String, normalized_color: ColortripletRawNormalized) -> Color {
+    let (r, g, b) = normalized_color;
+    let hsl = colorsys::Hsl::from(colorsys::Rgb::from(normalized_color));
+    // If saturation is under 10% assume it is grayscale
+    if hsl.get_saturation() < 0.1 {
+        let gray = f32::round(hsl.get_lightness() as f32 * 25.0) as u8;
+        let color_number = match gray {
+            0 => 16,
+            25 => 231,
+            _ => 231 + gray,
+        };
+        Color {
+            name,
+            color_type: ColorType::EightBit,
+            number: Some(color_number),
+            ..Default::default()
+        }
+    } else {
+        let color_number = 16
+            + 36 * f32::round(r * 5.0) as u8
+            + 6 * f32::round(g * 5.0) as u8
+            + f32::round(b * 5.0) as u8;
+        Color {
+            name,
+            color_type: ColorType::EightBit,
+            number: Some(color_number),
+            ..Default::default()
         }
     }
 }
