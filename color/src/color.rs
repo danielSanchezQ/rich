@@ -4,10 +4,10 @@ use std::fmt::{Display, Formatter};
 
 use lazy_static::lazy_static;
 
-use crate::triplet::ColortripletRaw;
 use crate::{
     palette::{EIGHT_BIT_PALETTE, STANDARD_PALETTE, WINDOWS_PALETTE},
-    triplet::ColorTriplet,
+    terminal_theme::{TerminalTheme, DEFAULT_TERMINAL_THEME},
+    triplet::{ColorTriplet, ColortripletRaw},
 };
 
 #[derive(Clone, Copy)]
@@ -248,8 +248,6 @@ lazy_static! {
     };
 }
 
-pub type TerminalTheme = String;
-
 /// Terminal color definition
 pub struct Color {
     /// The name of the color (typically the input to Color.parse)
@@ -328,20 +326,23 @@ impl Color {
 
     pub fn get_true_color(
         &self,
-        theme: Option<TerminalTheme>,
+        theme: Option<&TerminalTheme>,
         foreground: Option<bool>,
     ) -> ColorTriplet {
-        let theme = theme.unwrap_or_else(Default::default);
+        let theme = theme.unwrap_or(&DEFAULT_TERMINAL_THEME);
+        let foreground = foreground.unwrap_or(false);
         match self.color_type {
             ColorType::Default => {
                 assert!(self.number.is_none());
-                // TODO: return actual value from theme
-                unimplemented!();
+                if foreground {
+                    theme.foreground_color
+                } else {
+                    theme.background_color
+                }
             }
             ColorType::Standard => {
                 assert!(self.number.is_some());
-                // TODO: return actual value from theme
-                unimplemented!();
+                theme.ansi_colors[self.number.unwrap() as usize].into()
             }
             ColorType::EightBit => {
                 assert!(self.number.is_some());
@@ -354,6 +355,60 @@ impl Color {
             ColorType::Windows => {
                 assert!(self.number.is_some());
                 STANDARD_PALETTE[self.number.unwrap() as usize].into()
+            }
+        }
+    }
+
+    /// Get the ANSI escape codes for this color
+    pub fn get_ansi_codes(&self, foreground: Option<bool>) -> Vec<String> {
+        let foreground = foreground.unwrap_or(false);
+        match self.color_type {
+            ColorType::Default => {
+                if foreground {
+                    vec!["39".to_string()]
+                } else {
+                    vec!["49".to_string()]
+                }
+            }
+            ColorType::Standard => {
+                assert!(self.number.is_some());
+                let n = self.number.unwrap();
+                let (fore, back) = if n < 8 { (30, 40) } else { (82, 92) };
+                if foreground {
+                    vec![format!("{}", fore + n)]
+                } else {
+                    vec![format!("{}", back + n)]
+                }
+            }
+            ColorType::EightBit => {
+                assert!(self.number.is_some());
+                let fst = if foreground {
+                    "38".to_string()
+                } else {
+                    "48".to_string()
+                };
+                vec![fst, "5".to_string(), format!("{}", self.number.unwrap())]
+            }
+            ColorType::TrueColor => {
+                assert!(self.triplet.is_some());
+                let fst = if foreground {
+                    "38".to_string()
+                } else {
+                    "48".to_string()
+                };
+                let (r, g, b) = self.triplet.unwrap().as_raw();
+                vec![
+                    fst,
+                    "2".to_string(),
+                    r.to_string(),
+                    g.to_string(),
+                    b.to_string(),
+                ]
+            }
+            ColorType::Windows => {
+                assert!(self.number.is_some());
+                let ret = if foreground { 30 } else { 40 } + self.number.unwrap();
+                vec![format!("{}", ret)]
             }
         }
     }

@@ -14,6 +14,10 @@ impl From<ColortripletRaw> for ColorTriplet {
 }
 
 impl ColorTriplet {
+    pub fn as_raw(&self) -> ColortripletRaw {
+        (self.red, self.green, self.blue)
+    }
+
     pub fn hex(&self) -> String {
         format!(
             "#{r:02x}{g:02x}{b:02x}",
