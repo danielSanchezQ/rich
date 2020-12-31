@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
 
 use lazy_static::lazy_static;
@@ -10,6 +9,7 @@ use crate::{
     terminal_theme::{TerminalTheme, DEFAULT_TERMINAL_THEME},
     triplet::{ColorTriplet, ColortripletRaw},
 };
+use std::f32::consts::E;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum ColorSystem {
@@ -40,7 +40,7 @@ impl From<ColorType> for ColorSystem {
 }
 
 lazy_static! {
-    pub static ref ANSI_COLOR_NAMES: HashMap<&'static str, u32> = {
+    pub static ref ANSI_COLOR_NAMES: HashMap<&'static str, u8> = {
         let mut m = HashMap::new();
         m.insert("black", 0);
         m.insert("red", 1);
@@ -278,6 +278,12 @@ impl Default for Color {
     }
 }
 
+lazy_static! {
+    pub static ref RE_COLOR: regex::Regex =
+        regex::Regex::new(r#"^\#([0-9a-f]{6})$|color\(([0-9]{1,3})\)$|rgb\(([\d\s,]+)\)$"#)
+            .unwrap();
+}
+
 impl Color {
     /// Create a Color number from it's 8-bit ansi number
     pub fn from_ansi(number: u8) -> Self {
@@ -434,24 +440,111 @@ impl Color {
 
     /// Downgrade a color system to a system with fewer colors
     pub fn downgrade(&self, system: ColorSystem) -> Self {
-        if matches!(self.color_type, ColorType::Default) {
+        if self.color_type == ColorType::Default {
             return self.clone();
         }
         if ColorSystem::from(self.color_type) == system {
             return self.clone();
         }
-        if matches!(
-            (system, self.system()),
-            (ColorSystem::EightBit, ColorSystem::TrueColor)
-        ) {
-            assert!(self.triplet.is_some());
-            return truecolor_2_eightbit(self.name.clone(), self.triplet.unwrap().normalized());
+        match (system, self.system()) {
+            (ColorSystem::EightBit, ColorSystem::TrueColor) => {
+                assert!(self.triplet.is_some());
+                truecolor_2_eightbit(&self.name, self.triplet.unwrap().normalized())
+            }
+            (ColorSystem::Standard, ColorSystem::TrueColor) => {
+                assert!(self.triplet.is_some());
+                truecolor_2_standard(&self.name, self.triplet.unwrap())
+            }
+            (ColorSystem::Standard, ColorSystem::EightBit) => {
+                assert!(self.number.is_some());
+                eightbit_2_standard(&self.name, self.number.unwrap())
+            }
+            (ColorSystem::Windows, ColorSystem::TrueColor) => {
+                assert!(self.triplet.is_some());
+                truecolor_2_windows(&self.name, self.triplet.unwrap())
+            }
+            (ColorSystem::Windows, ColorSystem::EightBit) => {
+                assert!(self.number.is_some());
+                eightbit_2_windows(&self.name, self.number.unwrap())
+            }
+            _ => self.clone(),
         }
-        self.clone()
+    }
+
+    pub fn parse(color: &str) -> Result<Self, ()> {
+        let original_color = color.to_string();
+        let cleaned_color = color.to_lowercase().trim().to_string();
+        if color == "default" {
+            return Ok(Self::default());
+        }
+
+        if let Some(color_number) = ANSI_COLOR_NAMES.get(cleaned_color.as_str()) {
+            Ok(parsed_ansi_color(&cleaned_color, *color_number))
+        } else if let Some(color_match) = RE_COLOR.captures(&cleaned_color) {
+            parsed_regex_captures(&cleaned_color, color_match)
+        } else {
+            Err(())
+        }
     }
 }
 
-fn truecolor_2_eightbit(name: String, normalized_color: ColortripletRawNormalized) -> Color {
+// TODO: Use some useful errors here
+fn parsed_regex_captures(color_name: &str, captures: regex::Captures) -> Result<Color, ()> {
+    let (color_24, color_8, color_rgb) = (captures.get(0), captures.get(1), captures.get(2));
+    if let Some(color) = color_24 {
+        Ok(Color {
+            name: color_name.to_string(),
+            color_type: ColorType::TrueColor,
+            triplet: Some(parse_rgb_hex(color.as_str())),
+            ..Default::default()
+        })
+    } else if let Some(color) = color_8 {
+        let number = u8::from_str_radix(color.as_str(), 10).map_err(|_| ())?;
+
+        let color_type = if number < 16 {
+            ColorType::Standard
+        } else {
+            ColorType::EightBit
+        };
+        Ok(Color {
+            name: color_name.to_string(),
+            color_type,
+            number: Some(number),
+            ..Default::default()
+        })
+    } else if let Some(color) = color_rgb {
+        let components: Vec<String> = color.as_str().split(',').map(|s| s.to_string()).collect();
+        match &components[..] {
+            [r, g, b] => {
+                let triplet = ColorTriplet::from((
+                    u8::from_str_radix(&r, 10).unwrap(),
+                    u8::from_str_radix(&g, 10).unwrap(),
+                    u8::from_str_radix(&b, 10).unwrap(),
+                ));
+                Err(())
+            }
+            _ => Err(()),
+        }
+    } else {
+        Err(())
+    }
+}
+
+fn parsed_ansi_color(color_name: &str, color_number: u8) -> Color {
+    let color_type = if color_number < 16 {
+        ColorType::Standard
+    } else {
+        ColorType::EightBit
+    };
+    Color {
+        name: color_name.to_string(),
+        color_type,
+        number: Some(color_number),
+        ..Default::default()
+    }
+}
+
+fn truecolor_2_eightbit(name: &str, normalized_color: ColortripletRawNormalized) -> Color {
     let (r, g, b) = normalized_color;
     let hsl = colorsys::Hsl::from(colorsys::Rgb::from(normalized_color));
     // If saturation is under 10% assume it is grayscale
@@ -463,7 +556,7 @@ fn truecolor_2_eightbit(name: String, normalized_color: ColortripletRawNormalize
             _ => 231 + gray,
         };
         Color {
-            name,
+            name: name.to_string(),
             color_type: ColorType::EightBit,
             number: Some(color_number),
             ..Default::default()
@@ -474,9 +567,70 @@ fn truecolor_2_eightbit(name: String, normalized_color: ColortripletRawNormalize
             + 6 * f32::round(g * 5.0) as u8
             + f32::round(b * 5.0) as u8;
         Color {
-            name,
+            name: name.to_string(),
             color_type: ColorType::EightBit,
             number: Some(color_number),
+            ..Default::default()
+        }
+    }
+}
+
+fn truecolor_2_standard(name: &str, triplet: ColorTriplet) -> Color {
+    // it safe to unwrap here because STANDARD_PALETTE is guaranteed to have data
+    let color_number = STANDARD_PALETTE.match_color(triplet.as_raw()).unwrap();
+    Color {
+        name: name.to_string(),
+        color_type: ColorType::Standard,
+        number: Some(color_number as u8),
+        ..Default::default()
+    }
+}
+fn eightbit_2_standard(name: &str, number: u8) -> Color {
+    let color = EIGHT_BIT_PALETTE[number as usize];
+    // it safe to unwrap here because STANDARD_PALETTE is guaranteed to have data
+    let color_number = STANDARD_PALETTE.match_color(color).unwrap();
+    Color {
+        name: name.to_string(),
+        color_type: ColorType::Standard,
+        number: Some(color_number as u8),
+        ..Default::default()
+    }
+}
+
+fn truecolor_2_windows(name: &str, triplet: ColorTriplet) -> Color {
+    // it safe to unwrap here because WINDOWS_PALETTE is guaranteed to have data
+    let color_number = WINDOWS_PALETTE.match_color(triplet.as_raw()).unwrap();
+    Color {
+        name: name.to_string(),
+        color_type: ColorType::Standard,
+        number: Some(color_number as u8),
+        ..Default::default()
+    }
+}
+
+fn eightbit_2_windows(name: &str, number: u8) -> Color {
+    if number < 8 {
+        Color {
+            name: name.to_string(),
+            color_type: ColorType::Windows,
+            number: Some(number),
+            ..Default::default()
+        }
+    } else if number < 16 {
+        Color {
+            name: name.to_string(),
+            color_type: ColorType::Windows,
+            number: Some(number - 8),
+            ..Default::default()
+        }
+    } else {
+        let color = EIGHT_BIT_PALETTE[number as usize];
+        // it safe to unwrap here because WINDOWS_PALETTE is guaranteed to have data
+        let color_number = WINDOWS_PALETTE.match_color(color).unwrap();
+        Color {
+            name: name.to_string(),
+            color_type: ColorType::Windows,
+            number: Some(color_number as u8),
             ..Default::default()
         }
     }

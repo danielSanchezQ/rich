@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 colorsys = "0.6.0"
 lazy_static = "1.4.0"
+regex = "1.4.2"
