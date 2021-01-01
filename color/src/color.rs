@@ -3,13 +3,17 @@ use std::fmt::{Display, Formatter};
 
 use lazy_static::lazy_static;
 
-use crate::triplet::ColortripletRawNormalized;
 use crate::{
     palette::{EIGHT_BIT_PALETTE, STANDARD_PALETTE, WINDOWS_PALETTE},
     terminal_theme::{TerminalTheme, DEFAULT_TERMINAL_THEME},
-    triplet::{ColorTriplet, ColortripletRaw},
+    triplet::{ColorTriplet, ColortripletRaw, ColortripletRawNormalized},
 };
-use std::f32::consts::E;
+
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("Color {original} could not be parsed due to: {message}")]
+    ParseColor { original: String, message: String },
+}
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum ColorSystem {
@@ -471,7 +475,7 @@ impl Color {
         }
     }
 
-    pub fn parse(color: &str) -> Result<Self, ()> {
+    pub fn parse(color: &str) -> Result<Self, Error> {
         let original_color = color.to_string();
         let cleaned_color = color.to_lowercase().trim().to_string();
         if color == "default" {
@@ -481,15 +485,21 @@ impl Color {
         if let Some(color_number) = ANSI_COLOR_NAMES.get(cleaned_color.as_str()) {
             Ok(parsed_ansi_color(&cleaned_color, *color_number))
         } else if let Some(color_match) = RE_COLOR.captures(&cleaned_color) {
-            parsed_regex_captures(&cleaned_color, color_match)
+            parsed_regex_captures(&original_color, &cleaned_color, color_match)
         } else {
-            Err(())
+            Err(Error::ParseColor {
+                original: original_color,
+                message: "unable to match color".to_string(),
+            })
         }
     }
 }
 
-// TODO: Use some useful errors here
-fn parsed_regex_captures(color_name: &str, captures: regex::Captures) -> Result<Color, ()> {
+fn parsed_regex_captures(
+    original_color: &str,
+    color_name: &str,
+    captures: regex::Captures,
+) -> Result<Color, Error> {
     let (color_24, color_8, color_rgb) = (captures.get(0), captures.get(1), captures.get(2));
     if let Some(color) = color_24 {
         Ok(Color {
@@ -499,7 +509,10 @@ fn parsed_regex_captures(color_name: &str, captures: regex::Captures) -> Result<
             ..Default::default()
         })
     } else if let Some(color) = color_8 {
-        let number = u8::from_str_radix(color.as_str(), 10).map_err(|_| ())?;
+        let number = u8::from_str_radix(color.as_str(), 10).map_err(|_| Error::ParseColor {
+            original: original_color.to_string(),
+            message: "color number must be <= 255".to_string(),
+        })?;
 
         let color_type = if number < 16 {
             ColorType::Standard
@@ -517,16 +530,33 @@ fn parsed_regex_captures(color_name: &str, captures: regex::Captures) -> Result<
         match &components[..] {
             [r, g, b] => {
                 let triplet = ColorTriplet::from((
-                    u8::from_str_radix(&r, 10).unwrap(),
-                    u8::from_str_radix(&g, 10).unwrap(),
-                    u8::from_str_radix(&b, 10).unwrap(),
+                    u8::from_str_radix(&r, 10).map_err(|_| Error::ParseColor {
+                        original: original_color.to_string(),
+                        message: "red component must be <= 255".to_string(),
+                    })?,
+                    u8::from_str_radix(&g, 10).map_err(|_| Error::ParseColor {
+                        original: original_color.to_string(),
+                        message: "green component must be <= 255".to_string(),
+                    })?,
+                    u8::from_str_radix(&b, 10).map_err(|_| Error::ParseColor {
+                        original: original_color.to_string(),
+                        message: "blue component must be <= 255".to_string(),
+                    })?,
                 ));
-                Err(())
+                Ok(Color {
+                    name: color_name.to_string(),
+                    color_type: ColorType::TrueColor,
+                    triplet: Some(triplet),
+                    ..Default::default()
+                })
             }
-            _ => Err(()),
+            _ => Err(Error::ParseColor {
+                original: original_color.to_string(),
+                message: "expected three components (r, g, b)".to_string(),
+            }),
         }
     } else {
-        Err(())
+        unreachable!()
     }
 }
 
