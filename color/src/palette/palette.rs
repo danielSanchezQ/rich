@@ -28,9 +28,9 @@ impl Palette {
             .enumerate()
             .min_by_key(|(_, item)| {
                 let (r2, g2, b2) = item;
-                let red = r1 as i16 - *r2 as i16;
-                let green = g1 as i16 - *g2 as i16;
-                let blue = b1 as i16 - *b2 as i16;
+                let red = r1 as i32 - *r2 as i32;
+                let green = g1 as i32 - *g2 as i32;
+                let blue = b1 as i32 - *b2 as i32;
                 red * red + green * green + blue * blue
             })
             .map(|(i, _)| i)

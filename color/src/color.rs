@@ -6,7 +6,7 @@ use lazy_static::lazy_static;
 use crate::{
     palette::{EIGHT_BIT_PALETTE, STANDARD_PALETTE, WINDOWS_PALETTE},
     terminal_theme::{TerminalTheme, DEFAULT_TERMINAL_THEME},
-    triplet::{ColorTriplet, ColortripletRaw, ColortripletRawNormalized},
+    triplet::{ColorTriplet, ColortripletRaw},
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -15,7 +15,7 @@ pub enum Error {
     ParseColor { original: String, message: String },
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub enum ColorSystem {
     Standard,
     EightBit,
@@ -23,13 +23,26 @@ pub enum ColorSystem {
     Windows,
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub enum ColorType {
     Default,
     Standard,
     EightBit,
     TrueColor,
     Windows,
+}
+
+impl Display for ColorType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let repr = match self {
+            ColorType::Default => "default",
+            ColorType::Standard => "standard",
+            ColorType::EightBit => "eightbit",
+            ColorType::TrueColor => "truecolor",
+            ColorType::Windows => "windows",
+        };
+        write!(f, "{}", repr)
+    }
 }
 
 impl From<ColorType> for ColorSystem {
@@ -254,7 +267,7 @@ lazy_static! {
 }
 
 /// Terminal color definition
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Color {
     /// The name of the color (typically the input to Color.parse)
     pub name: String,
@@ -268,7 +281,7 @@ pub struct Color {
 
 impl Display for Color {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "<color {} ({})>", self.name, self.name.to_lowercase())
+        write!(f, "<color '{}' ({})>", self.name, self.color_type)
     }
 }
 
@@ -277,7 +290,8 @@ impl Default for Color {
         Self {
             name: "default".to_string(),
             color_type: ColorType::Default,
-            ..Default::default()
+            number: None,
+            triplet: None,
         }
     }
 }
@@ -342,7 +356,7 @@ impl Color {
         foreground: Option<bool>,
     ) -> ColorTriplet {
         let theme = theme.unwrap_or(&DEFAULT_TERMINAL_THEME);
-        let foreground = foreground.unwrap_or(false);
+        let foreground = foreground.unwrap_or(true);
         match self.color_type {
             ColorType::Default => {
                 assert!(self.number.is_none());
@@ -413,13 +427,13 @@ impl Color {
     }
 
     fn windows_ansi_code(n: u8, foreground: bool) -> Vec<String> {
-        let ret = if foreground { 30 } else { 40 } + n as u16;
+        let ret = (if foreground { 30 } else { 40 }) + n as u16;
         vec![ret.to_string()]
     }
 
     /// Get the ANSI escape codes for this color
     pub fn get_ansi_codes(&self, foreground: Option<bool>) -> Vec<String> {
-        let foreground = foreground.unwrap_or(false);
+        let foreground = foreground.unwrap_or(true);
         match self.color_type {
             ColorType::Default => Self::default_ansi_codes(foreground),
             ColorType::Standard => {
@@ -450,24 +464,28 @@ impl Color {
         if ColorSystem::from(self.color_type) == system {
             return self.clone();
         }
-        match (system, self.system()) {
-            (ColorSystem::EightBit, ColorSystem::TrueColor) => {
+        match (self.system(), system) {
+            (ColorSystem::TrueColor, ColorSystem::EightBit) => {
                 assert!(self.triplet.is_some());
-                truecolor_2_eightbit(&self.name, self.triplet.unwrap().normalized())
+                truecolor_2_eightbit(&self.name, self.triplet.unwrap())
             }
-            (ColorSystem::Standard, ColorSystem::TrueColor) => {
+            (ColorSystem::TrueColor, ColorSystem::Standard) => {
                 assert!(self.triplet.is_some());
                 truecolor_2_standard(&self.name, self.triplet.unwrap())
             }
-            (ColorSystem::Standard, ColorSystem::EightBit) => {
+            (ColorSystem::EightBit, ColorSystem::Standard) => {
                 assert!(self.number.is_some());
                 eightbit_2_standard(&self.name, self.number.unwrap())
             }
-            (ColorSystem::Windows, ColorSystem::TrueColor) => {
+            (ColorSystem::TrueColor, ColorSystem::Windows) => {
                 assert!(self.triplet.is_some());
                 truecolor_2_windows(&self.name, self.triplet.unwrap())
             }
-            (ColorSystem::Windows, ColorSystem::EightBit) => {
+            (ColorSystem::EightBit, ColorSystem::Windows) => {
+                assert!(self.number.is_some());
+                eightbit_2_windows(&self.name, self.number.unwrap())
+            }
+            (ColorSystem::Standard, ColorSystem::Windows) => {
                 assert!(self.number.is_some());
                 eightbit_2_windows(&self.name, self.number.unwrap())
             }
@@ -500,7 +518,7 @@ fn parsed_regex_captures(
     color_name: &str,
     captures: regex::Captures,
 ) -> Result<Color, Error> {
-    let (color_24, color_8, color_rgb) = (captures.get(0), captures.get(1), captures.get(2));
+    let (color_24, color_8, color_rgb) = (captures.get(1), captures.get(2), captures.get(3));
     if let Some(color) = color_24 {
         Ok(Color {
             name: color_name.to_string(),
@@ -519,6 +537,7 @@ fn parsed_regex_captures(
         } else {
             ColorType::EightBit
         };
+
         Ok(Color {
             name: color_name.to_string(),
             color_type,
@@ -574,12 +593,11 @@ fn parsed_ansi_color(color_name: &str, color_number: u8) -> Color {
     }
 }
 
-fn truecolor_2_eightbit(name: &str, normalized_color: ColortripletRawNormalized) -> Color {
-    let (r, g, b) = normalized_color;
-    let hsl = colorsys::Hsl::from(colorsys::Rgb::from(normalized_color));
+fn truecolor_2_eightbit(name: &str, color: ColorTriplet) -> Color {
+    let hsl = colorsys::Hsl::from(colorsys::Rgb::from(color.as_raw()));
     // If saturation is under 10% assume it is grayscale
-    if hsl.get_saturation() < 0.1 {
-        let gray = f32::round(hsl.get_lightness() as f32 * 25.0) as u8;
+    if hsl.get_saturation() < 10.0 {
+        let gray = f32::round(hsl.get_lightness() as f32 * 0.25) as u8;
         let color_number = match gray {
             0 => 16,
             25 => 231,
@@ -592,6 +610,7 @@ fn truecolor_2_eightbit(name: &str, normalized_color: ColortripletRawNormalized)
             ..Default::default()
         }
     } else {
+        let (r, g, b) = color.normalized();
         let color_number = 16
             + 36 * f32::round(r * 5.0) as u8
             + 6 * f32::round(g * 5.0) as u8
@@ -615,6 +634,7 @@ fn truecolor_2_standard(name: &str, triplet: ColorTriplet) -> Color {
         ..Default::default()
     }
 }
+
 fn eightbit_2_standard(name: &str, number: u8) -> Color {
     let color = EIGHT_BIT_PALETTE[number as usize];
     // it safe to unwrap here because STANDARD_PALETTE is guaranteed to have data
@@ -632,7 +652,7 @@ fn truecolor_2_windows(name: &str, triplet: ColorTriplet) -> Color {
     let color_number = WINDOWS_PALETTE.match_color(triplet.as_raw()).unwrap();
     Color {
         name: name.to_string(),
-        color_type: ColorType::Standard,
+        color_type: ColorType::Windows,
         number: Some(color_number as u8),
         ..Default::default()
     }
@@ -691,4 +711,402 @@ pub fn blend_rgb(
     let g = color1.green as f32 + (color2.green as f32 - color1.green as f32) * cross_fade;
     let b = color1.blue as f32 + (color2.blue as f32 - color1.blue as f32) * cross_fade;
     ColorTriplet::from((r as u8, g as u8, b as u8))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_display() {
+        assert_eq!(
+            &format!("{}", Color::parse("red").unwrap()),
+            "<color 'red' (standard)>"
+        );
+    }
+
+    #[test]
+    fn test_system() {
+        assert_eq!(
+            Color::parse("default").unwrap().system(),
+            ColorSystem::Standard
+        );
+
+        assert_eq!(Color::parse("red").unwrap().system(), ColorSystem::Standard);
+
+        assert_eq!(
+            Color::parse("#ff0000").unwrap().system(),
+            ColorSystem::TrueColor
+        );
+    }
+
+    #[test]
+    fn test_windows() {
+        assert_eq!(
+            Color {
+                name: "red".to_string(),
+                color_type: ColorType::Windows,
+                number: Some(1),
+                triplet: None
+            }
+            .get_ansi_codes(None),
+            vec!["31"]
+        );
+    }
+
+    #[test]
+    fn test_truecolor() {
+        let cases = vec![
+            ("#ff0000", ColorTriplet::from((255, 0, 0))),
+            ("red", ColorTriplet::from((128, 0, 0))),
+            ("color(1)", ColorTriplet::from((128, 0, 0))),
+            ("color(17)", ColorTriplet::from((0, 0, 95))),
+            ("default", ColorTriplet::from((0, 0, 0))),
+        ];
+
+        for (color, expected) in cases {
+            assert_eq!(
+                Color::parse(color).unwrap().get_true_color(None, None),
+                expected
+            );
+        }
+
+        assert_eq!(
+            Color::parse("default")
+                .unwrap()
+                .get_true_color(None, Some(false)),
+            ColorTriplet::from((255, 255, 255))
+        );
+
+        assert_eq!(
+            Color {
+                name: "red".to_string(),
+                color_type: ColorType::Windows,
+                number: Some(1),
+                triplet: None
+            }
+            .get_true_color(None, None),
+            ColorTriplet::from((170, 0, 0))
+        );
+    }
+
+    #[test]
+    fn test_parse_success() {
+        assert_eq!(Color::parse("default").unwrap(), Color::default());
+
+        assert_eq!(
+            Color::parse("red").unwrap(),
+            Color {
+                name: "red".to_string(),
+                color_type: ColorType::Standard,
+                number: Some(1),
+                triplet: None
+            }
+        );
+
+        assert_eq!(
+            Color::parse("bright_red").unwrap(),
+            Color {
+                name: "bright_red".to_string(),
+                color_type: ColorType::Standard,
+                number: Some(9),
+                triplet: None
+            }
+        );
+
+        assert_eq!(
+            Color::parse("yellow4").unwrap(),
+            Color {
+                name: "yellow4".to_string(),
+                color_type: ColorType::EightBit,
+                number: Some(106),
+                triplet: None
+            }
+        );
+
+        assert_eq!(
+            Color::parse("color(100)").unwrap(),
+            Color {
+                name: "color(100)".to_string(),
+                color_type: ColorType::EightBit,
+                number: Some(100),
+                triplet: None
+            }
+        );
+
+        assert_eq!(
+            Color::parse("#112233").unwrap(),
+            Color {
+                name: "#112233".to_string(),
+                color_type: ColorType::TrueColor,
+                number: None,
+                triplet: Some(ColorTriplet::from((0x11u8, 0x22u8, 0x33u8)))
+            }
+        );
+
+        assert_eq!(
+            Color::parse("rgb(90,100,110)").unwrap(),
+            Color {
+                name: "rgb(90,100,110)".to_string(),
+                color_type: ColorType::TrueColor,
+                number: None,
+                triplet: Some(ColorTriplet::from((90, 100, 110)))
+            }
+        );
+    }
+
+    #[test]
+    fn test_from_triplet() {
+        assert_eq!(
+            Color::from_triplet(ColorTriplet::from((0x10, 0x20, 0x30))),
+            Color {
+                name: "#102030".to_string(),
+                color_type: ColorType::TrueColor,
+                number: None,
+                triplet: Some(ColorTriplet::from((0x10, 0x20, 0x30))),
+            }
+        )
+    }
+
+    #[test]
+    fn test_from_rgb() {
+        assert_eq!(
+            Color::from_rgb((0x10, 0x20, 0x30)),
+            Color {
+                name: "#102030".to_string(),
+                color_type: ColorType::TrueColor,
+                number: None,
+                triplet: Some(ColorTriplet::from((0x10, 0x20, 0x30)))
+            }
+        )
+    }
+
+    #[test]
+    fn test_from_ansi() {
+        assert_eq!(
+            Color::from_ansi(1),
+            Color {
+                name: "color(1)".to_string(),
+                color_type: ColorType::Standard,
+                number: Some(1),
+                triplet: None
+            }
+        )
+    }
+
+    #[test]
+    fn test_default() {
+        assert_eq!(
+            Color::default(),
+            Color {
+                name: "default".to_string(),
+                color_type: ColorType::Default,
+                number: None,
+                triplet: None
+            }
+        )
+    }
+
+    #[test]
+    fn test_parse_error() {
+        let cases = vec![
+            "256",
+            "color(256)",
+            "rgb(999,0,0)",
+            "rgb(0,0)",
+            "rgb(0,0,0,0)",
+            "nosuchcolor",
+            "#xxyyzz",
+        ];
+
+        for case in cases {
+            assert!(Color::parse(case).is_err());
+        }
+    }
+
+    #[test]
+    fn test_get_ansi_codes() {
+        let cases = vec![
+            ("default", true, vec!["39"]),
+            ("default", false, vec!["49"]),
+            ("red", true, vec!["31"]),
+            ("red", false, vec!["41"]),
+            ("color(1)", true, vec!["31"]),
+            ("color(1)", false, vec!["41"]),
+            ("#ff0000", true, vec!["38", "2", "255", "0", "0"]),
+            ("#ff0000", false, vec!["48", "2", "255", "0", "0"]),
+        ];
+
+        for (case, foreground, expected) in cases {
+            assert_eq!(
+                Color::parse(case).unwrap().get_ansi_codes(Some(foreground)),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn test_downgrade() {
+        assert_eq!(
+            Color::parse("color(9)")
+                .unwrap()
+                .downgrade(ColorSystem::Standard),
+            Color {
+                name: "color(9)".to_string(),
+                color_type: ColorType::Standard,
+                number: Some(9),
+                triplet: None
+            }
+        );
+
+        assert_eq!(
+            Color::parse("#000000")
+                .unwrap()
+                .downgrade(ColorSystem::EightBit),
+            Color {
+                name: "#000000".to_string(),
+                color_type: ColorType::EightBit,
+                number: Some(16),
+                triplet: None
+            }
+        );
+
+        assert_eq!(
+            Color::parse("#ffffff")
+                .unwrap()
+                .downgrade(ColorSystem::EightBit),
+            Color {
+                name: "#ffffff".to_string(),
+                color_type: ColorType::EightBit,
+                number: Some(231),
+                triplet: None
+            }
+        );
+
+        assert_eq!(
+            Color::parse("#404142")
+                .unwrap()
+                .downgrade(ColorSystem::EightBit),
+            Color {
+                name: "#404142".to_string(),
+                color_type: ColorType::EightBit,
+                number: Some(237),
+                triplet: None
+            }
+        );
+
+        assert_eq!(
+            Color::parse("#ff0000")
+                .unwrap()
+                .downgrade(ColorSystem::EightBit),
+            Color {
+                name: "#ff0000".to_string(),
+                color_type: ColorType::EightBit,
+                number: Some(196),
+                triplet: None
+            }
+        );
+
+        assert_eq!(
+            Color::parse("#ff0000")
+                .unwrap()
+                .downgrade(ColorSystem::Standard),
+            Color {
+                name: "#ff0000".to_string(),
+                color_type: ColorType::Standard,
+                number: Some(1),
+                triplet: None
+            }
+        );
+
+        assert_eq!(
+            Color::parse("color(20)")
+                .unwrap()
+                .downgrade(ColorSystem::Standard),
+            Color {
+                name: "color(20)".to_string(),
+                color_type: ColorType::Standard,
+                number: Some(4),
+                triplet: None
+            }
+        );
+
+        assert_eq!(
+            Color::parse("red").unwrap().downgrade(ColorSystem::Windows),
+            Color {
+                name: "red".to_string(),
+                color_type: ColorType::Windows,
+                number: Some(1),
+                triplet: None
+            }
+        );
+
+        assert_eq!(
+            Color::parse("bright_red")
+                .unwrap()
+                .downgrade(ColorSystem::Windows),
+            Color {
+                name: "bright_red".to_string(),
+                color_type: ColorType::Windows,
+                number: Some(1),
+                triplet: None
+            }
+        );
+
+        assert_eq!(
+            Color::parse("#ff0000")
+                .unwrap()
+                .downgrade(ColorSystem::Windows),
+            Color {
+                name: "#ff0000".to_string(),
+                color_type: ColorType::Windows,
+                number: Some(1),
+                triplet: None
+            }
+        );
+
+        assert_eq!(
+            Color::parse("color(255)")
+                .unwrap()
+                .downgrade(ColorSystem::Windows),
+            Color {
+                name: "color(255)".to_string(),
+                color_type: ColorType::Windows,
+                number: Some(7),
+                triplet: None
+            }
+        );
+
+        assert_eq!(
+            Color::parse("#00ff00")
+                .unwrap()
+                .downgrade(ColorSystem::Standard),
+            Color {
+                name: "#00ff00".to_string(),
+                color_type: ColorType::Standard,
+                number: Some(2),
+                triplet: None
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_rgb_hex() {
+        assert_eq!(
+            parse_rgb_hex("aabbcc"),
+            ColorTriplet::from((0xAA, 0xBB, 0xCC))
+        )
+    }
+
+    #[test]
+    fn test_blend_rgb() {
+        assert_eq!(
+            blend_rgb(
+                ColorTriplet::from((10, 20, 30)),
+                ColorTriplet::from((30, 40, 50)),
+                None
+            ),
+            ColorTriplet::from((20, 30, 40))
+        )
+    }
 }

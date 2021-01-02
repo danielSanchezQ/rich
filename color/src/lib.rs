@@ -3,4 +3,4 @@ pub mod palette;
 mod terminal_theme;
 pub mod triplet;
 
-pub use color::*;
+pub use self::color::*;
