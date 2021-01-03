@@ -13,13 +13,14 @@ lazy_static! {
             "1", "2", "3", "4", "5", "6", "7", "8", "9", "21", "51", "52", "53",
         ]
     };
+    pub static ref NULL_STYLE: Style = { Style::default() };
 }
 
 /// A terminal style.
 /// A terminal style consists of a color (`color`), a background color (`bgcolor`), and a number of attributes, such
 /// as bold, italic etc. The attributes have 3 states: they can either be on
 /// (``True``), off (``False``), or not set (``None``).
-struct Style {
+pub struct Style {
     ansi: String,
     style_definition: String,
     /// Color of terminal text. Defaults to None.
