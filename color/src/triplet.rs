@@ -2,7 +2,7 @@ pub type ColortripletRaw = (u8, u8, u8);
 
 pub type ColortripletRawNormalized = (f32, f32, f32);
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct ColorTriplet {
     pub red: u8,
     pub green: u8,

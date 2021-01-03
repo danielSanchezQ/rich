@@ -23,7 +23,7 @@ pub enum ColorSystem {
     Windows,
 }
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Hash)]
 pub enum ColorType {
     Default,
     Standard,
@@ -267,7 +267,7 @@ lazy_static! {
 }
 
 /// Terminal color definition
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Color {
     /// The name of the color (typically the input to Color.parse)
     pub name: String,
