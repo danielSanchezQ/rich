@@ -784,6 +784,13 @@ impl Style {
             .map(|style| style.to_string())
             .unwrap_or(style.trim().to_lowercase())
     }
+
+    pub fn pick_first<Styles>(styles: Styles) -> Option<Style>
+    where
+        Styles: IntoIterator<Item = Option<Style>>,
+    {
+        styles.into_iter().filter(Option::is_some).next().unwrap()
+    }
 }
 
 impl PartialEq for Style {
