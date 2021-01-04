@@ -9,4 +9,5 @@ edition = "2018"
 [dependencies]
 color = { path = "../color" }
 lazy_static = "1.4.0"
+thiserror = "1.0.23"
 uuid = { version = "0.8.1", features = ["v4"] }

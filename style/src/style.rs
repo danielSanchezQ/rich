@@ -3,6 +3,7 @@ use std::hash::{Hash, Hasher};
 use std::option::Option::Some;
 
 use lazy_static::lazy_static;
+use thiserror::Error;
 
 use color::{Color, ColorSystem};
 use std::fmt::{Display, Formatter};
@@ -13,7 +14,41 @@ lazy_static! {
             "1", "2", "3", "4", "5", "6", "7", "8", "9", "21", "51", "52", "53",
         ]
     };
+    static ref STYLE_ATTRIBUTES: HashMap<&'static str, &'static str> = {
+        let mut m = HashMap::with_capacity(22);
+        m.insert("dim", "dim");
+        m.insert("d", "dim");
+        m.insert("bold", "bold");
+        m.insert("b", "bold");
+        m.insert("italic", "italic");
+        m.insert("i", "italic");
+        m.insert("underline", "underline");
+        m.insert("u", "underline");
+        m.insert("blink", "blink");
+        m.insert("blink2", "blink2");
+        m.insert("reverse", "reverse");
+        m.insert("r", "reverse");
+        m.insert("conceal", "conceal");
+        m.insert("c", "conceal");
+        m.insert("strike", "strike");
+        m.insert("s", "strike");
+        m.insert("underline2", "underline2");
+        m.insert("uu", "underline2");
+        m.insert("frame", "frame");
+        m.insert("encircle", "encircle");
+        m.insert("overline", "overline");
+        m.insert("o", "overline");
+        m
+    };
     pub static ref NULL_STYLE: Style = { Style::default() };
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("{0}")]
+    SyntaxError(String),
+    #[error("{0}")]
+    ColorParseError(#[from] color::Error),
 }
 
 /// A terminal style.
@@ -177,6 +212,26 @@ impl StyleBuilder {
     pub fn with_link(mut self, link: String) -> Self {
         self.link = Some(link);
         self
+    }
+
+    pub fn attribute_from_str(mut self, attribute: &str) -> Self {
+        let attr = STYLE_ATTRIBUTES.get(attribute);
+        match *attr.unwrap_or(&"") {
+            "bold" => self.bold(),
+            "dim" => self.dim(),
+            "italic" => self.italic(),
+            "underline" => self.underline(),
+            "blink" => self.blink(),
+            "blink2" => self.blink2(),
+            "reverse" => self.reverse(),
+            "conceal" => self.conceal(),
+            "strike" => self.strike(),
+            "underline2" => self.underline2(),
+            "frame" => self.frame(),
+            "encircle" => self.encircle(),
+            "overline" => self.overline(),
+            _ => self,
+        }
     }
 
     pub fn build(self) -> Style {
@@ -578,6 +633,56 @@ impl Style {
                 new_style
             }
         }
+    }
+
+    pub fn chain<'a, Styles>(styles: Styles) -> Style
+    where
+        Styles: IntoIterator<Item = Option<&'a Style>> + Copy,
+    {
+        let mut iter = styles.into_iter().filter_map(|style| style);
+        let mut ret_style: Style = Style::default();
+        for style in styles {
+            ret_style = ret_style.combine(style);
+        }
+        ret_style
+    }
+
+    pub fn parse(style_definition: &str) -> Result<Style, Error> {
+        if style_definition.trim() == "none" {
+            return Ok(Style::null());
+        }
+        let mut style_builder = StyleBuilder::new();
+        let mut words = style_definition.split_ascii_whitespace().into_iter();
+        while let Some(original_word) = words.next() {
+            let word = original_word.to_lowercase();
+            match word.as_str() {
+                "on" => {
+                    let color_word = words
+                        .next()
+                        .ok_or(Error::SyntaxError("color expected after 'on'".to_string()))?;
+                    let color = Color::parse(color_word)?;
+                    style_builder = style_builder.with_background_color(color);
+                }
+                "not" => {
+                    // we skip since attributes are false by default
+                    words.next();
+                }
+                "link" => {
+                    let link = words
+                        .next()
+                        .ok_or(Error::SyntaxError("URL expected after 'link'".to_string()))?;
+                    style_builder = style_builder.with_link(link.to_string());
+                }
+                attribute if STYLE_ATTRIBUTES.contains_key(attribute) => {
+                    style_builder = style_builder.attribute_from_str(attribute);
+                }
+                word => {
+                    let color = Color::parse(word)?;
+                    style_builder = style_builder.with_color(color);
+                }
+            }
+        }
+        Ok(style_builder.build())
     }
 }
 
