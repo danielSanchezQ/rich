@@ -6,7 +6,11 @@ use std::option::Option::Some;
 use lazy_static::lazy_static;
 use thiserror::Error;
 
-use color::{blend_rgb, Color, ColorSystem, TerminalTheme, DEFAULT_TERMINAL_THEME};
+use color::{
+    blend_rgb,
+    terminal_theme::{TerminalTheme, DEFAULT_TERMINAL_THEME},
+    Color, ColorSystem,
+};
 
 lazy_static! {
     static ref STYLE_MAP: [&'static str; 13] = {
@@ -772,6 +776,13 @@ impl Style {
             }
             _ => rendered,
         }
+    }
+
+    /// Normalize a style definition so that styles with the same effect have the same String representation
+    pub fn normalize(style: &str) -> String {
+        Self::parse(style)
+            .map(|style| style.to_string())
+            .unwrap_or(style.trim().to_lowercase())
     }
 }
 
