@@ -4,3 +4,4 @@ mod terminal_theme;
 pub mod triplet;
 
 pub use self::color::*;
+pub use terminal_theme::*;

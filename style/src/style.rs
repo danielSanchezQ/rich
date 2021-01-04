@@ -1,12 +1,12 @@
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::option::Option::Some;
 
 use lazy_static::lazy_static;
 use thiserror::Error;
 
-use color::{Color, ColorSystem};
-use std::fmt::{Display, Formatter};
+use color::{blend_rgb, Color, ColorSystem, TerminalTheme, DEFAULT_TERMINAL_THEME};
 
 lazy_static! {
     static ref STYLE_MAP: [&'static str; 13] = {
@@ -561,7 +561,7 @@ impl Style {
     }
 
     /// Generate ANSI codes for this style
-    fn ansi_codes(&mut self, color_system: ColorSystem) -> String {
+    fn ansi_codes(&self, color_system: ColorSystem) -> String {
         let mut ansi_codes: Vec<String> = Vec::new();
         for i in 0..13 {
             if matches!(self.bit_flag(i), Some(true)) {
@@ -647,6 +647,7 @@ impl Style {
         ret_style
     }
 
+    /// Parse a style definition
     pub fn parse(style_definition: &str) -> Result<Style, Error> {
         if style_definition.trim() == "none" {
             return Ok(Style::null());
@@ -683,6 +684,94 @@ impl Style {
             }
         }
         Ok(style_builder.build())
+    }
+
+    // Get a CSS style rule
+    pub fn get_html_style(&self, theme: Option<TerminalTheme>) -> String {
+        let theme = theme.unwrap_or(Default::default());
+        let mut css: Vec<String> = Vec::new();
+        let (mut color, mut background_color) =
+            (self.color().cloned(), self.background_color().cloned());
+
+        if self.reverse().unwrap_or(false) {
+            color = self.background_color().cloned();
+            background_color = self.color().cloned();
+        }
+
+        if self.dim().unwrap_or(false) {
+            let foreground_color = if color.is_none() {
+                theme.foreground_color
+            } else {
+                color.unwrap().get_true_color(Some(&theme), None)
+            };
+            color = Some(Color::from_triplet(blend_rgb(
+                foreground_color,
+                theme.background_color,
+                Some(0.5),
+            )));
+        }
+
+        if let Some(color) = color {
+            let theme_color = color.get_true_color(Some(&theme), None);
+            css.push(format!("color: {}", theme_color.hex()));
+        }
+
+        if let Some(background_color) = background_color {
+            let theme_color = background_color.get_true_color(Some(&theme), Some(false));
+            css.push(format!("background-color: {}", theme_color.hex()));
+        }
+
+        if self.bold().unwrap_or(false) {
+            css.push("font-weight: bold".to_string());
+        }
+
+        if self.italic().unwrap_or(false) {
+            css.push("font-weight: italic".to_string());
+        }
+
+        if self.underline().unwrap_or(false) {
+            css.push("font-weight: underline".to_string());
+        }
+
+        if self.strike().unwrap_or(false) {
+            css.push("font-weight: line-through".to_string());
+        }
+
+        if self.overline().unwrap_or(false) {
+            css.push("font-weight: overline".to_string());
+        }
+
+        css.join("; ")
+    }
+
+    /// Render the ANSI codes for the style
+    pub fn render(
+        &self,
+        text: &str,
+        color_system: Option<ColorSystem>,
+        legacy_windows: Option<bool>,
+    ) -> String {
+        if text.is_empty() || color_system.is_none() {
+            return String::default();
+        }
+
+        let attrs = self.ansi_codes(color_system.unwrap_or(ColorSystem::TrueColor));
+        let rendered = if !attrs.is_empty() {
+            format!("\x1b[{attrs}m{text}\x1b[0m", attrs = attrs, text = text)
+        } else {
+            text.to_string()
+        };
+        match (self.link(), !legacy_windows.unwrap_or(false)) {
+            (Some(link), true) => {
+                format!(
+                    "\x1b]8;id={};{}\x1b\\{}\x1b]8;;\x1b\\",
+                    self.link_id(),
+                    link,
+                    rendered
+                )
+            }
+            _ => rendered,
+        }
     }
 }
 
