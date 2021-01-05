@@ -1,17 +1,12 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
+use std::ops::BitAnd;
 use std::option::Option::Some;
 
-use bitflags::_core::ops::{BitAnd, BitOr, BitXor};
 use lazy_static::lazy_static;
-use thiserror::Error;
 
-use color::{
-    blend_rgb,
-    terminal_theme::{TerminalTheme, DEFAULT_TERMINAL_THEME},
-    Color, ColorSystem,
-};
+use color::{blend_rgb, terminal_theme::TerminalTheme, Color, ColorSystem};
 
 lazy_static! {
     static ref STYLE_MAP: [&'static str; 13] = {
@@ -128,6 +123,8 @@ struct StyleBuilder {
     link: Option<String>,
 }
 
+struct StyleStack(VecDeque<Style>);
+
 impl Default for Style {
     fn default() -> Self {
         Self {
@@ -182,7 +179,7 @@ impl StyleBuilder {
         self
     }
 
-    pub fn attribute_from_str(mut self, attribute: &str, value: bool) -> Self {
+    pub fn attribute_from_str(self, attribute: &str, value: bool) -> Self {
         let attr = STYLE_ATTRIBUTES.get(attribute);
         match *attr.unwrap_or(&"") {
             "bold" => self.with_attribute(StyleAttribute::BOLD, value),
@@ -565,12 +562,11 @@ impl Style {
 
     pub fn chain<'a, Styles>(styles: Styles) -> Style
     where
-        Styles: IntoIterator<Item = Option<&'a Style>> + Copy,
+        Styles: IntoIterator<Item = &'a Option<&'a Style>> + Copy,
     {
-        let mut iter = styles.into_iter().filter_map(|style| style);
         let mut ret_style: Style = Style::default();
         for style in styles {
-            ret_style = ret_style.combine(style);
+            ret_style = ret_style.combine(*style);
         }
         ret_style
     }
@@ -660,19 +656,19 @@ impl Style {
         }
 
         if self.italic().unwrap_or(false) {
-            css.push("font-weight: italic".to_string());
+            css.push("font-style: italic".to_string());
         }
 
         if self.underline().unwrap_or(false) {
-            css.push("font-weight: underline".to_string());
+            css.push("text-decoration: underline".to_string());
         }
 
         if self.strike().unwrap_or(false) {
-            css.push("font-weight: line-through".to_string());
+            css.push("text-decoration: line-through".to_string());
         }
 
         if self.overline().unwrap_or(false) {
-            css.push("font-weight: overline".to_string());
+            css.push("text-decoration: overline".to_string());
         }
 
         css.join("; ")
@@ -686,7 +682,7 @@ impl Style {
         legacy_windows: Option<bool>,
     ) -> String {
         if text.is_empty() || color_system.is_none() {
-            return String::default();
+            return text.to_string();
         }
 
         let attrs = self.ansi_codes(color_system.unwrap_or(ColorSystem::TrueColor));
@@ -715,15 +711,16 @@ impl Style {
             .unwrap_or(style.trim().to_lowercase())
     }
 
-    pub fn pick_first<Styles>(styles: Styles) -> Option<Style>
+    pub fn pick_first<'a, Styles>(styles: Styles) -> Option<Style>
     where
-        Styles: IntoIterator<Item = Option<Style>>,
+        Styles: IntoIterator<Item = Option<&'a Style>>,
     {
         styles
             .into_iter()
             .filter(Option::is_some)
             .next()
             .unwrap_or(None)
+            .cloned()
     }
 }
 
@@ -773,9 +770,33 @@ impl Clone for Style {
     }
 }
 
+impl StyleStack {
+    pub fn new(default_style: Style) -> Self {
+        Self(VecDeque::from(vec![default_style]))
+    }
+
+    pub fn current(&self) -> &Style {
+        // we can safely unwrap, we will check so it is never empty
+        self.0.get(self.0.len() - 1).unwrap()
+    }
+
+    pub fn push(&mut self, new_style: Style) {
+        self.0.push_back(self.current().combine(Some(&new_style)));
+    }
+
+    pub fn pop(&mut self) -> Style {
+        if self.0.len() == 1 {
+            return self.current().clone();
+        }
+        // safe to unwrap here since we always will have at least one extra
+        self.0.pop_back().unwrap()
+    }
+}
+
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use color::ColorType;
 
     #[test]
     fn test_str() {
@@ -835,7 +856,7 @@ pub mod tests {
             "bold red on black"
         );
 
-        let mut all_styles_builder = StyleBuilder::new()
+        let all_styles_builder = StyleBuilder::new()
             .with_color(Color::parse("red").unwrap())
             .with_background_color(Color::parse("black").unwrap());
         let all_styles_builder = StyleAttribute::all_flags()
@@ -854,7 +875,7 @@ pub mod tests {
 
     #[test]
     fn test_ansi_codes() {
-        let mut all_styles_builder = StyleBuilder::new()
+        let all_styles_builder = StyleBuilder::new()
             .with_color(Color::parse("red").unwrap())
             .with_background_color(Color::parse("black").unwrap());
         let all_styles_builder = StyleAttribute::all_flags()
@@ -921,5 +942,230 @@ pub mod tests {
             true
         );
         assert_eq!(Style::parse("").unwrap().as_bool(), false);
+    }
+
+    #[test]
+    fn test_color_property() {
+        assert_eq!(
+            *StyleBuilder::new()
+                .with_color(Color::parse("red").unwrap())
+                .build()
+                .color()
+                .unwrap(),
+            Color {
+                name: "red".to_string(),
+                color_type: ColorType::Standard,
+                number: Some(1),
+                triplet: None
+            }
+        )
+    }
+
+    #[test]
+    fn test_background_color_property() {
+        assert_eq!(
+            *StyleBuilder::new()
+                .with_background_color(Color::parse("black").unwrap())
+                .build()
+                .background_color()
+                .unwrap(),
+            Color {
+                name: "black".to_string(),
+                color_type: ColorType::Standard,
+                number: Some(0),
+                triplet: None
+            }
+        )
+    }
+
+    #[test]
+    fn test_parse_success() {
+        assert_eq!(
+            Style::parse("").expect("a 'null' style was expected"),
+            Style::null()
+        );
+
+        assert_eq!(
+            Style::parse("red").expect("a 'red' only style"),
+            Style::new(Color::parse("red").ok(), None, &[], None)
+        );
+
+        assert_eq!(
+            Style::parse("not bold").expect("a 'not bold' style"),
+            StyleBuilder::new()
+                .with_attribute(StyleAttribute::BOLD, false)
+                .build()
+        );
+
+        assert_eq!(
+            Style::parse("bold red on black").expect("a 'bold red on black' style"),
+            StyleBuilder::new()
+                .with_color(Color::parse("red").unwrap())
+                .with_background_color(Color::parse("black").unwrap())
+                .with_attribute(StyleAttribute::BOLD, true)
+                .build()
+        );
+
+        assert_eq!(
+            Style::parse("bold link https://example.org").expect("a style with a bold link"),
+            StyleBuilder::new()
+                .with_attribute(StyleAttribute::BOLD, true)
+                .with_link("https://example.org")
+                .build()
+        )
+    }
+
+    #[test]
+    fn test_parse_fails() {
+        assert!(Style::parse("on").is_err());
+        assert!(Style::parse("on nothing").is_err());
+        assert!(Style::parse("rgb(999,999,999)").is_err());
+        assert!(Style::parse("not monkey").is_err());
+        assert!(Style::parse("link").is_err());
+    }
+
+    #[test]
+    fn test_background_style() {
+        assert_eq!(
+            StyleBuilder::new()
+                .with_background_color(Color::parse("red").expect("a red color"))
+                .with_color(Color::parse("yellow").expect("a yellow color"))
+                .with_attribute(StyleAttribute::BOLD, true)
+                .build()
+                .background_style(),
+            StyleBuilder::new()
+                .with_background_color(Color::parse("red").expect("a red color"))
+                .build()
+        );
+    }
+
+    #[test]
+    fn test_link_id() {
+        assert_eq!(Style::null().link_id, "");
+        assert_eq!(Style::parse("").expect("null style expected").link_id(), "");
+        assert_eq!(Style::parse("red").expect("a red only style").link_id(), "");
+        assert!(
+            Style::parse("red link https://example.org")
+                .expect("a red link style")
+                .link_id()
+                .len()
+                > 1
+        );
+    }
+
+    #[test]
+    fn test_get_html_style() {
+        let expected = "color: #7f7fbf; background-color: #800000; font-weight: bold; font-style: italic; text-decoration: underline; text-decoration: line-through; text-decoration: overline";
+        let style = Style::new(
+            Color::parse("red").ok(),
+            Color::parse("blue").ok(),
+            &[
+                (StyleAttribute::REVERSE, true),
+                (StyleAttribute::DIM, true),
+                (StyleAttribute::BOLD, true),
+                (StyleAttribute::ITALIC, true),
+                (StyleAttribute::UNDERLINE, true),
+                (StyleAttribute::STRIKE, true),
+                (StyleAttribute::OVERLINE, true),
+            ],
+            None,
+        );
+        assert_eq!(style.get_html_style(None), expected);
+    }
+
+    #[test]
+    fn test_chain() {
+        let red = StyleBuilder::new()
+            .with_color(Color::parse("red").expect("a red color"))
+            .build();
+        let bold = StyleBuilder::new()
+            .with_attribute(StyleAttribute::BOLD, true)
+            .build();
+        let expected = StyleBuilder::new()
+            .with_color(Color::parse("red").expect("a red color"))
+            .with_attribute(StyleAttribute::BOLD, true)
+            .build();
+        let styles = [Some(&red), Some(&bold)];
+        assert_eq!(Style::chain(&styles), expected);
+    }
+
+    #[test]
+    fn test_copy() {
+        let style = StyleBuilder::new()
+            .with_color(Color::parse("red").expect("red color"))
+            .with_background_color(Color::parse("black").expect("black color"))
+            .with_attribute(StyleAttribute::ITALIC, true)
+            .with_link("https://foo.bar")
+            .build();
+        assert_eq!(style.clone(), style.clone());
+        assert_ne!(style.clone().link_id, style.link_id);
+    }
+
+    #[test]
+    fn test_render() {
+        assert_eq!(
+            StyleBuilder::new()
+                .with_color(Color::parse("red").expect("a red color"))
+                .build()
+                .render("foo1", None, None),
+            "foo1"
+        );
+
+        assert_eq!(
+            StyleBuilder::new()
+                .with_color(Color::parse("red").expect("a red color"))
+                .with_background_color(Color::parse("black").expect("a black color"))
+                .with_attribute(StyleAttribute::BOLD, true)
+                .build()
+                .render("foo2", Some(ColorSystem::TrueColor), None),
+            "\x1b[1;31;40mfoo2\x1b[0m"
+        );
+
+        assert_eq!(Style::null().render("foo3", None, None), "foo3");
+    }
+
+    #[test]
+    fn test_combine() {
+        let red = StyleBuilder::new()
+            .with_color(Color::parse("red").expect("a red color"))
+            .build();
+        let bold = StyleBuilder::new()
+            .with_attribute(StyleAttribute::BOLD, true)
+            .build();
+        let expected = StyleBuilder::new()
+            .with_color(Color::parse("red").expect("a red color"))
+            .with_attribute(StyleAttribute::BOLD, true)
+            .build();
+        assert_eq!(red.combine(None), red);
+        assert_eq!(red.combine(Some(&bold)), expected)
+    }
+
+    #[test]
+    fn test_pick_first() {
+        let void: Vec<Option<&Style>> = vec![];
+        assert!(Style::pick_first(void).is_none());
+    }
+
+    #[test]
+    fn test_style_stack() {
+        let red = StyleBuilder::new()
+            .with_color(Color::parse("red").expect("a red color"))
+            .build();
+        let bold = StyleBuilder::new()
+            .with_attribute(StyleAttribute::BOLD, true)
+            .build();
+        let expected = StyleBuilder::new()
+            .with_color(Color::parse("red").expect("a red color"))
+            .with_attribute(StyleAttribute::BOLD, true)
+            .build();
+
+        let mut stack = StyleStack::new(red.clone());
+        assert_eq!(*stack.current(), red.clone());
+
+        stack.push(bold.clone());
+        assert_eq!(*stack.current(), expected);
+
+        stack.pop();
+        assert_eq!(*stack.current(), red);
     }
 }
