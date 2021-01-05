@@ -1,8 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::option::Option::Some;
 
+use bitflags::_core::ops::{BitAnd, BitOr, BitXor};
 use lazy_static::lazy_static;
 use thiserror::Error;
 
@@ -44,7 +45,7 @@ lazy_static! {
         m.insert("o", "overline");
         m
     };
-    pub static ref NULL_STYLE: Style = { Style::default() };
+    pub static ref NULL_STYLE: Style = Style::default();
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -55,10 +56,54 @@ pub enum Error {
     ColorParseError(#[from] color::Error),
 }
 
+bitflags::bitflags! {
+    #[derive(Default)]
+    pub struct StyleAttribute: u32 {
+        const BOLD = 1;
+        const DIM = 2;
+        const ITALIC = 4;
+        const UNDERLINE = 8;
+        const BLINK = 16;
+        const BLINK2 = 32;
+        const REVERSE = 64;
+        const CONCEAL = 128;
+        const STRIKE = 256;
+        const UNDERLINE2 = 512;
+        const FRAME = 1024;
+        const ENCIRCLE = 2048;
+        const OVERLINE = 4096;
+    }
+}
+
+impl StyleAttribute {
+    pub fn enabled(&self, flag: StyleAttribute) -> bool {
+        self.bitand(flag).bits == flag.bits
+    }
+
+    pub fn all_flags() -> [StyleAttribute; 13] {
+        [
+            StyleAttribute::BOLD,
+            StyleAttribute::DIM,
+            StyleAttribute::ITALIC,
+            StyleAttribute::UNDERLINE,
+            StyleAttribute::BLINK,
+            StyleAttribute::BLINK2,
+            StyleAttribute::REVERSE,
+            StyleAttribute::CONCEAL,
+            StyleAttribute::STRIKE,
+            StyleAttribute::UNDERLINE2,
+            StyleAttribute::FRAME,
+            StyleAttribute::ENCIRCLE,
+            StyleAttribute::OVERLINE,
+        ]
+    }
+}
+
 /// A terminal style.
 /// A terminal style consists of a color (`color`), a background color (`bgcolor`), and a number of attributes, such
 /// as bold, italic etc. The attributes have 3 states: they can either be on
 /// (``True``), off (``False``), or not set (``None``).
+#[derive(Debug, Eq)]
 pub struct Style {
     ansi: String,
     style_definition: String,
@@ -66,31 +111,20 @@ pub struct Style {
     color: Option<Color>,
     /// Color of terminal background. Defaults to None.
     background_color: Option<Color>,
-    set_attributes: u32,
-    attributes: u32,
+    set_attributes: StyleAttribute,
+    attributes: StyleAttribute,
     /// Link URL. Defaults to None.
     link: Option<String>,
     link_id: String,
     null: bool,
 }
 
-// TODO: Maybe move this to use bitflags crate? https://docs.rs/bitflags
+#[derive(Clone)]
 struct StyleBuilder {
     color: Option<Color>,
     background_color: Option<Color>,
-    bold: bool,
-    dim: bool,
-    italic: bool,
-    underline: bool,
-    blink: bool,
-    blink2: bool,
-    reverse: bool,
-    conceal: bool,
-    strike: bool,
-    underline2: bool,
-    frame: bool,
-    encircle: bool,
-    overline: bool,
+    attributes_set: HashSet<StyleAttribute>,
+    attributes: StyleAttribute,
     link: Option<String>,
 }
 
@@ -101,8 +135,8 @@ impl Default for Style {
             style_definition: "none".to_string(),
             color: None,
             background_color: None,
-            set_attributes: 0,
-            attributes: 0,
+            set_attributes: Default::default(),
+            attributes: Default::default(),
             link: None,
             link_id: "".to_string(),
             null: true,
@@ -115,19 +149,8 @@ impl Default for StyleBuilder {
         Self {
             color: None,
             background_color: None,
-            bold: false,
-            dim: false,
-            italic: false,
-            underline: false,
-            blink: false,
-            blink2: false,
-            reverse: false,
-            conceal: false,
-            strike: false,
-            underline2: false,
-            frame: false,
-            encircle: false,
-            overline: false,
+            attributes_set: HashSet::with_capacity(13),
+            attributes: Default::default(),
             link: None,
         }
     }
@@ -148,115 +171,45 @@ impl StyleBuilder {
         self
     }
 
-    pub fn bold(mut self) -> Self {
-        self.bold = true;
+    pub fn with_attribute(mut self, flag: StyleAttribute, value: bool) -> Self {
+        self.attributes_set.insert(flag);
+        self.attributes.set(flag, value);
         self
     }
 
-    pub fn dim(mut self) -> Self {
-        self.dim = true;
+    pub fn with_link(mut self, link: &str) -> Self {
+        self.link = Some(link.to_string());
         self
     }
 
-    pub fn italic(mut self) -> Self {
-        self.italic = true;
-        self
-    }
-
-    pub fn underline(mut self) -> Self {
-        self.underline = true;
-        self
-    }
-
-    pub fn blink(mut self) -> Self {
-        self.blink = true;
-        self
-    }
-
-    pub fn blink2(mut self) -> Self {
-        self.blink2 = true;
-        self
-    }
-
-    pub fn reverse(mut self) -> Self {
-        self.reverse = true;
-        self
-    }
-
-    pub fn conceal(mut self) -> Self {
-        self.conceal = true;
-        self
-    }
-
-    pub fn strike(mut self) -> Self {
-        self.strike = true;
-        self
-    }
-
-    pub fn underline2(mut self) -> Self {
-        self.underline2 = true;
-        self
-    }
-
-    pub fn frame(mut self) -> Self {
-        self.frame = true;
-        self
-    }
-
-    pub fn encircle(mut self) -> Self {
-        self.encircle = true;
-        self
-    }
-
-    pub fn overline(mut self) -> Self {
-        self.overline = true;
-        self
-    }
-
-    pub fn with_link(mut self, link: String) -> Self {
-        self.link = Some(link);
-        self
-    }
-
-    pub fn attribute_from_str(mut self, attribute: &str) -> Self {
+    pub fn attribute_from_str(mut self, attribute: &str, value: bool) -> Self {
         let attr = STYLE_ATTRIBUTES.get(attribute);
         match *attr.unwrap_or(&"") {
-            "bold" => self.bold(),
-            "dim" => self.dim(),
-            "italic" => self.italic(),
-            "underline" => self.underline(),
-            "blink" => self.blink(),
-            "blink2" => self.blink2(),
-            "reverse" => self.reverse(),
-            "conceal" => self.conceal(),
-            "strike" => self.strike(),
-            "underline2" => self.underline2(),
-            "frame" => self.frame(),
-            "encircle" => self.encircle(),
-            "overline" => self.overline(),
+            "bold" => self.with_attribute(StyleAttribute::BOLD, value),
+            "dim" => self.with_attribute(StyleAttribute::DIM, value),
+            "italic" => self.with_attribute(StyleAttribute::ITALIC, value),
+            "underline" => self.with_attribute(StyleAttribute::UNDERLINE, value),
+            "blink" => self.with_attribute(StyleAttribute::BLINK, value),
+            "blink2" => self.with_attribute(StyleAttribute::BLINK2, value),
+            "reverse" => self.with_attribute(StyleAttribute::REVERSE, value),
+            "conceal" => self.with_attribute(StyleAttribute::CONCEAL, value),
+            "strike" => self.with_attribute(StyleAttribute::STRIKE, value),
+            "underline2" => self.with_attribute(StyleAttribute::UNDERLINE2, value),
+            "frame" => self.with_attribute(StyleAttribute::FRAME, value),
+            "encircle" => self.with_attribute(StyleAttribute::ENCIRCLE, value),
+            "overline" => self.with_attribute(StyleAttribute::OVERLINE, value),
             _ => self,
         }
     }
 
     pub fn build(self) -> Style {
-        Style::new(
-            self.color,
-            self.background_color,
-            self.bold,
-            self.dim,
-            self.italic,
-            self.underline,
-            self.blink,
-            self.blink2,
-            self.reverse,
-            self.conceal,
-            self.strike,
-            self.underline2,
-            self.frame,
-            self.encircle,
-            self.overline,
-            self.link,
-        )
+        let attributes: Vec<(StyleAttribute, bool)> = self
+            .attributes_set
+            .iter()
+            .cloned()
+            .map(|flag| (flag, self.attributes.enabled(flag)))
+            .collect();
+        Style::new(self.color, self.background_color, &attributes, self.link)
     }
 }
 
@@ -264,55 +217,29 @@ impl Style {
     pub fn new(
         color: Option<Color>,
         background_color: Option<Color>,
-        bold: bool,
-        dim: bool,
-        italic: bool,
-        underline: bool,
-        blink: bool,
-        blink2: bool,
-        reverse: bool,
-        conceal: bool,
-        strike: bool,
-        underline2: bool,
-        frame: bool,
-        encircle: bool,
-        overline: bool,
+        attributes: &[(StyleAttribute, bool)],
         link: Option<String>,
     ) -> Self {
-        let attrs = [
-            bold, dim, italic, underline, blink, blink2, reverse, conceal, strike, underline2,
-            frame, encircle, overline,
-        ];
-        let set_attributes: u32 = attrs[1..]
+        let set_attributes: StyleAttribute = attributes
             .iter()
-            .enumerate()
-            .filter_map(|(i, flag)| {
-                if *flag {
-                    Some(2u32.pow(i as u32))
-                } else {
-                    None
-                }
-            })
-            .sum::<u32>()
-            + if bold { 1 } else { 0 };
+            .map(|(flag, _)| flag)
+            .fold(StyleAttribute::default(), |f1, f2| f1 | *f2);
 
-        let attributes: u32 = if set_attributes > 0 {
-            attrs
+        let attributes: StyleAttribute = if set_attributes.bits > 0 {
+            attributes
                 .iter()
-                .enumerate()
-                .filter_map(|(i, flag)| {
-                    if *flag {
-                        Some(2u32.pow(i as u32))
+                .fold(StyleAttribute::default(), |accum, (flag, value)| {
+                    if *value {
+                        accum | *flag
                     } else {
-                        None
+                        accum
                     }
                 })
-                .sum()
         } else {
-            0 as u32
+            StyleAttribute::default()
         };
 
-        let null = !(set_attributes > 0
+        let null = !(set_attributes.bits > 0
             || color.is_some()
             || background_color.is_some()
             || link.is_some());
@@ -344,8 +271,8 @@ impl Style {
             style_definition: "none".to_string(),
             color,
             background_color,
-            set_attributes: 0,
-            attributes: 0,
+            set_attributes: StyleAttribute::default(),
+            attributes: StyleAttribute::default(),
             link: None,
             link_id: "".to_string(),
             null,
@@ -353,11 +280,9 @@ impl Style {
     }
 
     #[inline]
-    fn bit_flag(&self, bit: u32) -> Option<bool> {
-        let bit: u32 = (1 << bit);
-        let res: u32 = &self.set_attributes & bit;
-        if res.count_ones() > 0 {
-            Some((self.attributes & bit) != 0)
+    fn flag_value(&self, flag: StyleAttribute) -> Option<bool> {
+        if self.set_attributes.enabled(flag) {
+            Some(self.attributes.enabled(flag))
         } else {
             None
         }
@@ -379,67 +304,67 @@ impl Style {
 
     /// bold text flag
     pub fn bold(&self) -> Option<bool> {
-        self.bit_flag(0)
+        self.flag_value(StyleAttribute::BOLD)
     }
 
     /// dim text flag
     pub fn dim(&self) -> Option<bool> {
-        self.bit_flag(1)
+        self.flag_value(StyleAttribute::DIM)
     }
 
     /// italic text flag
     pub fn italic(&self) -> Option<bool> {
-        self.bit_flag(2)
+        self.flag_value(StyleAttribute::ITALIC)
     }
 
     /// underlined text flag
     pub fn underline(&self) -> Option<bool> {
-        self.bit_flag(3)
+        self.flag_value(StyleAttribute::UNDERLINE)
     }
 
     /// blinking text flag
     pub fn blink(&self) -> Option<bool> {
-        self.bit_flag(4)
+        self.flag_value(StyleAttribute::BLINK)
     }
 
     /// fast blinking text
     pub fn blink2(&self) -> Option<bool> {
-        self.bit_flag(5)
+        self.flag_value(StyleAttribute::BLINK2)
     }
 
     /// reverse text flag
     pub fn reverse(&self) -> Option<bool> {
-        self.bit_flag(6)
+        self.flag_value(StyleAttribute::REVERSE)
     }
 
     /// concealed text flag
     pub fn conceal(&self) -> Option<bool> {
-        self.bit_flag(7)
+        self.flag_value(StyleAttribute::CONCEAL)
     }
 
     /// strikethrough text flag
     pub fn strike(&self) -> Option<bool> {
-        self.bit_flag(8)
+        self.flag_value(StyleAttribute::STRIKE)
     }
 
     /// doubly underlined text flag
     pub fn underline2(&self) -> Option<bool> {
-        self.bit_flag(9)
+        self.flag_value(StyleAttribute::UNDERLINE2)
     }
 
     /// framed text flag
     pub fn frame(&self) -> Option<bool> {
-        self.bit_flag(10)
+        self.flag_value(StyleAttribute::FRAME)
     }
 
     /// encircled text flag
     pub fn encircle(&self) -> Option<bool> {
-        self.bit_flag(11)
+        self.flag_value(StyleAttribute::ENCIRCLE)
     }
 
     /// overlined text flag
     pub fn overline(&self) -> Option<bool> {
-        self.bit_flag(12)
+        self.flag_value(StyleAttribute::OVERLINE)
     }
 
     /// Get a link id, used in ansi code for links
@@ -502,7 +427,7 @@ impl Style {
         }
 
         if let Some(blink2) = self.blink2() {
-            attributes.push(if blink2 { "blink" } else { "not blink" });
+            attributes.push(if blink2 { "blink2" } else { "not blink2" });
         }
 
         if let Some(reverse) = self.reverse() {
@@ -558,7 +483,6 @@ impl Style {
         self.style_definition = res;
     }
 
-    // TODO: Do not like the mut ref here...think how to improve this api
     /// Re-generate style definition from attributes
     pub fn style_definition(&self) -> &str {
         &self.style_definition
@@ -567,8 +491,8 @@ impl Style {
     /// Generate ANSI codes for this style
     fn ansi_codes(&self, color_system: ColorSystem) -> String {
         let mut ansi_codes: Vec<String> = Vec::new();
-        for i in 0..13 {
-            if matches!(self.bit_flag(i), Some(true)) {
+        for (i, flag) in StyleAttribute::all_flags().iter().enumerate() {
+            if matches!(self.flag_value(*flag), Some(true)) {
                 ansi_codes.push(STYLE_MAP[i as usize].to_string());
             }
         }
@@ -669,17 +593,23 @@ impl Style {
                     style_builder = style_builder.with_background_color(color);
                 }
                 "not" => {
-                    // we skip since attributes are false by default
-                    words.next();
+                    let word = words.next().unwrap_or("");
+                    let attr = STYLE_ATTRIBUTES.get(word).cloned().ok_or_else(|| {
+                        Error::SyntaxError(format!(
+                            "style attribute expected after 'not', found: {}",
+                            word
+                        ))
+                    })?;
+                    style_builder = style_builder.attribute_from_str(attr, false);
                 }
                 "link" => {
                     let link = words
                         .next()
                         .ok_or(Error::SyntaxError("URL expected after 'link'".to_string()))?;
-                    style_builder = style_builder.with_link(link.to_string());
+                    style_builder = style_builder.with_link(link);
                 }
                 attribute if STYLE_ATTRIBUTES.contains_key(attribute) => {
-                    style_builder = style_builder.attribute_from_str(attribute);
+                    style_builder = style_builder.attribute_from_str(attribute, true);
                 }
                 word => {
                     let color = Color::parse(word)?;
@@ -789,7 +719,11 @@ impl Style {
     where
         Styles: IntoIterator<Item = Option<Style>>,
     {
-        styles.into_iter().filter(Option::is_some).next().unwrap()
+        styles
+            .into_iter()
+            .filter(Option::is_some)
+            .next()
+            .unwrap_or(None)
     }
 }
 
@@ -815,7 +749,7 @@ impl Hash for Style {
 
 impl Display for Style {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Style.parse({})", self.style_definition())
+        write!(f, "{}", self.style_definition())
     }
 }
 
@@ -836,5 +770,156 @@ impl Clone for Style {
                 .unwrap_or(Default::default()),
             null: false,
         }
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    #[test]
+    fn test_str() {
+        assert_eq!(
+            StyleBuilder::new()
+                .with_attribute(StyleAttribute::BOLD, false)
+                .build()
+                .to_string(),
+            "not bold"
+        );
+
+        assert_eq!(
+            StyleBuilder::new()
+                .with_color(Color::parse("red").unwrap())
+                .with_attribute(StyleAttribute::BOLD, false)
+                .build()
+                .to_string(),
+            "not bold red"
+        );
+
+        assert_eq!(
+            StyleBuilder::new()
+                .with_color(Color::parse("red").unwrap())
+                .with_attribute(StyleAttribute::BOLD, false)
+                .with_attribute(StyleAttribute::ITALIC, true)
+                .build()
+                .to_string(),
+            "not bold italic red"
+        );
+
+        assert_eq!(Style::null().to_string(), "none");
+
+        assert_eq!(
+            StyleBuilder::new()
+                .with_attribute(StyleAttribute::BOLD, true)
+                .build()
+                .to_string(),
+            "bold"
+        );
+
+        assert_eq!(
+            StyleBuilder::new()
+                .with_color(Color::parse("red").unwrap())
+                .with_attribute(StyleAttribute::BOLD, true)
+                .build()
+                .to_string(),
+            "bold red"
+        );
+
+        assert_eq!(
+            StyleBuilder::new()
+                .with_color(Color::parse("red").unwrap())
+                .with_background_color(Color::parse("black").unwrap())
+                .with_attribute(StyleAttribute::BOLD, true)
+                .build()
+                .to_string(),
+            "bold red on black"
+        );
+
+        let mut all_styles_builder = StyleBuilder::new()
+            .with_color(Color::parse("red").unwrap())
+            .with_background_color(Color::parse("black").unwrap());
+        let all_styles_builder = StyleAttribute::all_flags()
+            .iter()
+            .fold(all_styles_builder, |builder, flag| {
+                builder.with_attribute(*flag, true)
+            });
+        let all_styles_expected = "bold dim italic underline blink blink2 reverse conceal strike underline2 frame encircle overline red on black";
+        assert_eq!(all_styles_builder.build().to_string(), all_styles_expected);
+
+        assert_eq!(
+            StyleBuilder::new().with_link("foo").build().to_string(),
+            "link foo"
+        );
+    }
+
+    #[test]
+    fn test_ansi_codes() {
+        let mut all_styles_builder = StyleBuilder::new()
+            .with_color(Color::parse("red").unwrap())
+            .with_background_color(Color::parse("black").unwrap());
+        let all_styles_builder = StyleAttribute::all_flags()
+            .iter()
+            .fold(all_styles_builder, |builder, flag| {
+                builder.with_attribute(*flag, true)
+            });
+
+        let expected_ansi_codes = "1;2;3;4;5;6;7;8;9;21;51;52;53;31;40";
+
+        assert_eq!(
+            all_styles_builder
+                .build()
+                .ansi_codes(ColorSystem::TrueColor),
+            expected_ansi_codes
+        );
+    }
+
+    #[test]
+    fn test_eq() {
+        let red_builder = StyleBuilder::new()
+            .with_attribute(StyleAttribute::BOLD, true)
+            .with_color(Color::parse("red").unwrap());
+        let green_builder = StyleBuilder::new()
+            .with_attribute(StyleAttribute::BOLD, true)
+            .with_color(Color::parse("green").unwrap());
+        assert_eq!(red_builder.clone().build(), red_builder.clone().build());
+        assert_ne!(red_builder.build(), green_builder.build());
+    }
+
+    #[test]
+    fn test_hash() {
+        let style_null = Style::null();
+        let other_style = StyleBuilder::new()
+            .with_color(Color::parse("red").unwrap())
+            .build();
+        let mut set = HashSet::new();
+        set.insert(style_null.clone());
+        set.insert(other_style);
+        set.insert(style_null);
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn test_empty() {
+        assert_eq!(Style::null(), Style::default());
+    }
+
+    #[test]
+    fn test_bool() {
+        assert_eq!(Style::null().as_bool(), false);
+        assert_eq!(
+            StyleBuilder::new()
+                .with_attribute(StyleAttribute::BOLD, true)
+                .build()
+                .as_bool(),
+            true
+        );
+        assert_eq!(
+            StyleBuilder::new()
+                .with_color(Color::parse("red").unwrap())
+                .build()
+                .as_bool(),
+            true
+        );
+        assert_eq!(Style::parse("").unwrap().as_bool(), false);
     }
 }
