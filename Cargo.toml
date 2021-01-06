@@ -2,6 +2,7 @@
 members = [
     "console",
     "color",
-    "style"
+    "style",
+    "render_box"
 ]
 
