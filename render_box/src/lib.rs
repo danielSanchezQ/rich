@@ -160,7 +160,28 @@ impl RenderBox {
 
     /// Substitute this box for another if it won't render due to platform issues
     pub fn substitute(&self, options: ConsoleOptions, safe: Option<bool>) -> RenderBox {
-        self.clone()
+        let safe = safe.unwrap_or(true);
+
+        let mut new_render_box = self.clone();
+
+        if options.legacy_windows && safe {
+            new_render_box = LEGACY_WINDOWS_SUBSTITUTIONS
+                .get(&new_render_box)
+                .cloned()
+                .unwrap_or(new_render_box);
+        }
+
+        if options.ascii_only() && !new_render_box.ascii {
+            new_render_box = ASCII.clone();
+        }
+        new_render_box
+    }
+
+    pub fn get_top<Widths>(&self, widths: Widths) -> String
+    where
+        Widths: Iterator<Item = i32>,
+    {
+        "".to_lowercase()
     }
 }
 
