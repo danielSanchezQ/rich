@@ -4,6 +4,7 @@ use std::fmt::{Display, Formatter};
 use lazy_static::lazy_static;
 
 use console::options::ConsoleOptions;
+use utils::iter;
 
 /// Defines characters to render boxes.
 /// ┌─┬┐ top
@@ -179,9 +180,17 @@ impl RenderBox {
 
     pub fn get_top<Widths>(&self, widths: Widths) -> String
     where
-        Widths: Iterator<Item = i32>,
+        Widths: Iterator<Item = usize>,
     {
-        "".to_lowercase()
+        let mut parts = vec![self.top_left.clone()];
+        for (last, width) in iter::loop_last(widths) {
+            parts.push(self.top.repeat(width));
+            if last {
+                parts.push(self.top_divider.clone());
+            }
+        }
+        parts.push(self.top_right.clone());
+        parts.join("")
     }
 }
 
