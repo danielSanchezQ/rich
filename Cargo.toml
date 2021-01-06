@@ -3,6 +3,7 @@ members = [
     "console",
     "color",
     "style",
-    "render_box"
+    "render_box",
+    "utils"
 ]
 
