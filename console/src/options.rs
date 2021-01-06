@@ -18,23 +18,23 @@ pub trait Renderable {
 /// Options for `rich_console` method
 pub struct ConsoleOptions {
     /// flag for legacy windows
-    legacy_windows: bool,
+    pub legacy_windows: bool,
     /// Minimum width of renderable
-    min_width: usize,
+    pub min_width: usize,
     /// Maximum width of renderable
-    max_width: usize,
+    pub max_width: usize,
     /// True if the target is a terminal, otherwise False
-    is_terminal: bool,
+    pub is_terminal: bool,
     /// Encoding of terminal
-    encoding: Encoding,
+    pub encoding: Encoding,
     /// Justify value override for renderable
-    justify: Option<JustifyMethod>,
+    pub justify: Option<JustifyMethod>,
     /// Overflow value override for renderable
-    overflow: Option<OverflowMethod>,
+    pub overflow: Option<OverflowMethod>,
     // Deisable wrapping for text
-    no_wrap: Option<bool>,
+    pub no_wrap: Option<bool>,
     /// Highlight override for render_str
-    highlight: Option<bool>,
+    pub highlight: Option<bool>,
 }
 
 #[derive(Default)]
