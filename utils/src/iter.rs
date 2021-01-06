@@ -26,10 +26,12 @@ impl<T, Values: Iterator<Item = T>> Iterator for LoopLastIterator<T, Values> {
     type Item = (bool, T);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.inner.peek().is_none() {
-            Some((true, self.inner.next().unwrap()))
-        } else if let Some(value) = self.inner.next() {
-            Some((false, value))
+        if let Some(value) = self.inner.next() {
+            if self.inner.peek().is_none() {
+                Some((true, value))
+            } else {
+                Some((false, value))
+            }
         } else {
             None
         }
@@ -50,4 +52,47 @@ where
     LoopLastIterator::new(values)
         .zip([true].iter().cloned().chain(iter::repeat(false)))
         .map(|((flag1, value), flag2)| (flag1 || flag2, value))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_ITERABLE: [&'static str; 4] = ["a", "b", "c", "d"];
+
+    #[test]
+    fn test_loop_first() {
+        let empty_vec: Vec<i32> = Vec::new();
+        assert_eq!(loop_first(empty_vec.iter()).collect::<Vec<_>>(), vec![]);
+        let mut iter = loop_first(TEST_ITERABLE.iter());
+        assert_eq!(iter.next().unwrap(), (true, &TEST_ITERABLE[0]));
+        assert_eq!(iter.next().unwrap(), (false, &TEST_ITERABLE[1]));
+        assert_eq!(iter.next().unwrap(), (false, &TEST_ITERABLE[2]));
+        assert_eq!(iter.next().unwrap(), (false, &TEST_ITERABLE[3]));
+    }
+
+    #[test]
+    fn test_loop_last() {
+        let empty_vec: Vec<i32> = Vec::new();
+        assert_eq!(loop_last(empty_vec.iter()).collect::<Vec<_>>(), vec![]);
+        let mut iter = loop_last(TEST_ITERABLE.iter());
+        assert_eq!(iter.next().unwrap(), (false, &TEST_ITERABLE[0]));
+        assert_eq!(iter.next().unwrap(), (false, &TEST_ITERABLE[1]));
+        assert_eq!(iter.next().unwrap(), (false, &TEST_ITERABLE[2]));
+        assert_eq!(iter.next().unwrap(), (true, &TEST_ITERABLE[3]));
+    }
+
+    #[test]
+    fn test_loop_first_last() {
+        let empty_vec: Vec<i32> = Vec::new();
+        assert_eq!(
+            loop_first_last(empty_vec.iter()).collect::<Vec<_>>(),
+            vec![]
+        );
+        let mut iter = loop_first_last(TEST_ITERABLE.iter());
+        assert_eq!(iter.next().unwrap(), (true, &TEST_ITERABLE[0]));
+        assert_eq!(iter.next().unwrap(), (false, &TEST_ITERABLE[1]));
+        assert_eq!(iter.next().unwrap(), (false, &TEST_ITERABLE[2]));
+        assert_eq!(iter.next().unwrap(), (true, &TEST_ITERABLE[3]));
+    }
 }
