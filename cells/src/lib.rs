@@ -9,7 +9,7 @@ use lru::LruCache;
 pub use cell_widths::CELL_WIDTHS;
 
 lazy_static! {
-    static ref CODEPOINT_CELL_SIZE_CACHE: Mutex<LruCache<u8, usize>> =
+    static ref CODEPOINT_CELL_SIZE_CACHE: Mutex<LruCache<u32, usize>> =
         Mutex::new(LruCache::new(4096));
     static ref DEFAULT_CELL_LEN_CACHE: Mutex<LruCache<String, usize>> =
         Mutex::new(LruCache::new(4096));
@@ -34,12 +34,12 @@ pub fn get_character_cell_size(char: char) -> usize {
     if char.is_ascii() {
         1
     } else {
-        get_codepoint_cell_size(char as u8)
+        get_codepoint_cell_size(char as u32)
     }
 }
 
 /// Get the cell size of a character
-fn get_codepoint_cell_size(codepoint: u8) -> usize {
+fn get_codepoint_cell_size(codepoint: u32) -> usize {
     let mut cache = CODEPOINT_CELL_SIZE_CACHE.lock().unwrap();
     if let Some(result) = cache.get(&codepoint) {
         return *result;
@@ -77,13 +77,78 @@ pub fn set_cell_size(text: &str, total: usize) -> String {
     }
 
     let mut character_sizes: Vec<usize> = text.chars().map(get_character_cell_size).collect();
-    let mut excess = cell_size - total;
+    let mut excess = cell_size as i32 - total as i32;
     while excess > 0 && character_sizes.len() > 0 {
-        excess -= character_sizes.pop().unwrap();
+        excess -= character_sizes.pop().unwrap() as i32;
     }
-    let mut text = text[..character_sizes.len()].to_string();
+    let mut text = text
+        .chars()
+        .take(character_sizes.len())
+        .map(|c| c.to_string())
+        .collect::<Vec<String>>()
+        .join("");
     if excess < 0 {
         text.push(' ');
     }
     text
+}
+
+/// Break text in to equal (cell) length strings
+pub fn chop_cells(text: &str, max_size: usize, position: usize) -> Vec<String> {
+    let mut characters = text
+        .chars()
+        .rev()
+        .map(|c| (c, get_character_cell_size(c)))
+        .peekable();
+    let mut total_size = position;
+    let mut lines: Vec<Vec<char>> = Vec::new();
+    while let Some(_) = characters.peek() {
+        let (character, size) = characters.next().unwrap();
+        if (total_size + size) > max_size {
+            lines.push(vec![character]);
+            total_size = size
+        } else {
+            total_size = size;
+            let len = lines.len();
+            lines.get_mut(len - 1).unwrap().push(character);
+        }
+    }
+    lines
+        .iter()
+        .map(|line| {
+            line.iter()
+                .map(|c| c.to_string())
+                .collect::<Vec<String>>()
+                .join("")
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_codepoint_cell_size() {
+        let codepoint = '😽' as u32;
+        assert_eq!(codepoint, 128573);
+        assert_eq!(get_codepoint_cell_size(codepoint), 2);
+    }
+
+    #[test]
+    fn test_get_character_cell_size() {
+        assert_eq!(get_character_cell_size('A'), 1);
+        assert_eq!(get_character_cell_size('😽'), 2);
+    }
+
+    #[test]
+    fn test_set_cell_size() {
+        assert_eq!(set_cell_size("foo", 2), "fo");
+        assert_eq!(set_cell_size("foo", 3), "foo");
+        assert_eq!(set_cell_size("foo", 4), "foo ");
+        assert_eq!(set_cell_size("😽😽", 4), "😽😽");
+        assert_eq!(set_cell_size("😽😽", 3), "😽 ");
+        assert_eq!(set_cell_size("😽😽", 2), "😽");
+        assert_eq!(set_cell_size("😽😽", 1), " ");
+    }
 }
