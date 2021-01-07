@@ -6,6 +6,13 @@ use lazy_static::lazy_static;
 use console::options::ConsoleOptions;
 use utils::iter;
 
+pub enum RenderBoxLevel {
+    Head,
+    Row,
+    Foot,
+    Mid,
+}
+
 /// Defines characters to render boxes.
 /// ┌─┬┐ top
 /// │ ││ head
@@ -26,6 +33,10 @@ pub struct RenderBox {
     head_left: String,
     head_vertical: String,
     head_right: String,
+    head_row_left: String,
+    head_row_horizontal: String,
+    head_row_cross: String,
+    head_row_right: String,
     mid_left: String,
     mid_vertical: String,
     mid_right: String,
@@ -48,6 +59,7 @@ pub struct RenderBox {
 
 impl RenderBox {
     pub fn new(inner_box: &str, ascii: Option<bool>) -> Self {
+        println!("{}", inner_box);
         let ascii = ascii.unwrap_or(false);
 
         let mut lines = inner_box.split('\n');
@@ -138,6 +150,10 @@ impl RenderBox {
             head_left,
             head_vertical,
             head_right,
+            head_row_left,
+            head_row_horizontal,
+            head_row_cross,
+            head_row_right,
             mid_left,
             mid_vertical,
             mid_right,
@@ -160,7 +176,7 @@ impl RenderBox {
     }
 
     /// Substitute this box for another if it won't render due to platform issues
-    pub fn substitute(&self, options: ConsoleOptions, safe: Option<bool>) -> RenderBox {
+    pub fn substitute(&self, options: &ConsoleOptions, safe: Option<bool>) -> RenderBox {
         let safe = safe.unwrap_or(true);
 
         let mut new_render_box = self.clone();
@@ -178,18 +194,85 @@ impl RenderBox {
         new_render_box
     }
 
-    pub fn get_top<Widths>(&self, widths: Widths) -> String
+    /// Get the top of a simple box
+    pub fn get_top<'a, Widths>(&self, widths: Widths) -> String
     where
-        Widths: Iterator<Item = usize>,
+        Widths: IntoIterator<Item = &'a usize>,
     {
         let mut parts = vec![self.top_left.clone()];
-        for (last, width) in iter::loop_last(widths) {
-            parts.push(self.top.repeat(width));
-            if last {
+        for (last, width) in iter::loop_last(widths.into_iter()) {
+            parts.push(self.top.repeat(*width));
+            if !last {
                 parts.push(self.top_divider.clone());
             }
         }
         parts.push(self.top_right.clone());
+        parts.join("")
+    }
+
+    /// Get the row of a simple box
+    pub fn get_row<'a, Widths>(
+        &self,
+        withds: Widths,
+        level: Option<RenderBoxLevel>,
+        edge: Option<bool>,
+    ) -> String
+    where
+        Widths: IntoIterator<Item = &'a usize>,
+    {
+        let edge = edge.unwrap_or(true);
+        let level = level.unwrap_or(RenderBoxLevel::Row);
+        let space = " ".to_string();
+        let (left, horizontal, cross, right) = match level {
+            RenderBoxLevel::Head => (
+                &self.head_row_left,
+                &self.head_row_horizontal,
+                &self.head_row_cross,
+                &self.head_row_right,
+            ),
+            RenderBoxLevel::Row => (
+                &self.row_left,
+                &self.row_horizontal,
+                &self.row_cross,
+                &self.row_right,
+            ),
+            RenderBoxLevel::Foot => (
+                &self.foot_row_left,
+                &self.foot_row_horizontal,
+                &self.foot_row_cross,
+                &self.foot_row_right,
+            ),
+            RenderBoxLevel::Mid => (&self.mid_left, &space, &self.mid_vertical, &self.mid_right),
+        };
+
+        let mut parts = Vec::new();
+        if edge {
+            parts.push(left.clone());
+        }
+        for (last, width) in iter::loop_last(withds.into_iter()) {
+            parts.push(horizontal.repeat(*width));
+            if !last {
+                parts.push(cross.to_string());
+            }
+        }
+        if edge {
+            parts.push(right.to_string());
+        }
+        parts.join("")
+    }
+
+    pub fn get_bottom<'a, Widths>(&self, widths: Widths) -> String
+    where
+        Widths: IntoIterator<Item = &'a usize>,
+    {
+        let mut parts = vec![self.bottom_left.clone()];
+        for (last, width) in iter::loop_last(widths.into_iter()) {
+            parts.push(self.bottom.repeat(*width));
+            if !last {
+                parts.push(self.bottom_divider.clone());
+            }
+        }
+        parts.push(self.bottom_right.clone());
         parts.join("")
     }
 }
@@ -210,7 +293,8 @@ lazy_static! {
 |-+|
 |-+|
 | ||
-+--+",
++--+
+",
         Some(true)
     );
     pub static ref ASCII2: RenderBox = RenderBox::new(
@@ -222,7 +306,8 @@ lazy_static! {
 +-++
 +-++
 | ||
-+-++",
++-++
+",
         Some(true)
     );
     pub static ref ASCII_DOUBLE_HEAD: RenderBox = RenderBox::new(
@@ -234,7 +319,8 @@ lazy_static! {
 +-++
 +-++
 | ||
-+-++",
++-++
+",
         Some(true)
     );
     pub static ref SQUARE: RenderBox = RenderBox::new(
@@ -246,7 +332,8 @@ lazy_static! {
 ├─┼┤
 ├─┼┤
 │ ││
-└─┴┘",
+└─┴┘
+",
         None
     );
     pub static ref SQUARE_DOUBLE_HEAD: RenderBox = RenderBox::new(
@@ -258,11 +345,12 @@ lazy_static! {
 ├─┼┤
 ├─┼┤
 │ ││
-└─┴┘",
+└─┴┘
+",
         None
     );
     pub static ref MINIMAL: RenderBox = RenderBox::new(
-        "\
+        "
   ╷ 
   │ 
 ╶─┼╴
@@ -270,11 +358,13 @@ lazy_static! {
 ╶─┼╴
 ╶─┼╴
   │ 
-  ╵",
+  ╵ 
+"
+        .trim_start_matches("\n"),
         None
     );
     pub static ref MINIMAL_HEAVY_HEAD: RenderBox = RenderBox::new(
-        "\
+        "
   ╷ 
   │ 
 ╺━┿╸
@@ -282,11 +372,13 @@ lazy_static! {
 ╶─┼╴
 ╶─┼╴
   │ 
-  ╵",
+  ╵ 
+"
+        .trim_start_matches("\n"),
         None
     );
     pub static ref MINIMAL_DOUBLE_HEAD: RenderBox = RenderBox::new(
-        "\
+        "
   ╷ 
   │ 
  ═╪ 
@@ -294,11 +386,13 @@ lazy_static! {
  ─┼ 
  ─┼ 
   │ 
-  ╵",
+  ╵ 
+"
+        .trim_start_matches("\n"),
         None
     );
     pub static ref SIMPLE: RenderBox = RenderBox::new(
-        "\
+        "
     
     
  ── 
@@ -306,11 +400,13 @@ lazy_static! {
     
  ── 
     
-    ",
+    
+"
+        .trim_start_matches("\n"),
         None
     );
     pub static ref SIMPLE_HEAD: RenderBox = RenderBox::new(
-        "\
+        "
     
     
  ── 
@@ -318,11 +414,13 @@ lazy_static! {
     
     
     
-    ",
+    
+"
+        .trim_start_matches("\n"),
         None
     );
     pub static ref SIMPLE_HEAVY: RenderBox = RenderBox::new(
-        "\
+        "
     
     
  ━━ 
@@ -330,11 +428,13 @@ lazy_static! {
     
  ━━ 
     
-   ",
+    
+"
+        .trim_start_matches("\n"),
         None
     );
     pub static ref HORIZONTALS: RenderBox = RenderBox::new(
-        "\
+        "
  ── 
     
  ── 
@@ -342,7 +442,9 @@ lazy_static! {
  ── 
  ── 
     
- ── ",
+ ── 
+"
+        .trim_start_matches("\n"),
         None
     );
     pub static ref ROUNDED: RenderBox = RenderBox::new(
@@ -354,7 +456,8 @@ lazy_static! {
 ├─┼┤
 ├─┼┤
 │ ││
-╰─┴╯",
+╰─┴╯
+",
         None
     );
     pub static ref HEAVY: RenderBox = RenderBox::new(
@@ -366,7 +469,8 @@ lazy_static! {
 ┣━╋┫
 ┣━╋┫
 ┃ ┃┃
-┗━┻┛",
+┗━┻┛
+",
         None
     );
     pub static ref HEAVY_EDGE: RenderBox = RenderBox::new(
@@ -378,7 +482,8 @@ lazy_static! {
 ┠─┼┨
 ┠─┼┨
 ┃ │┃
-┗━┷┛",
+┗━┷┛
+",
         None
     );
     pub static ref HEAVY_HEAD: RenderBox = RenderBox::new(
@@ -390,7 +495,8 @@ lazy_static! {
 ├─┼┤
 ├─┼┤
 │ ││
-└─┴┘",
+└─┴┘
+",
         None
     );
     pub static ref DOUBLE: RenderBox = RenderBox::new(
@@ -402,7 +508,8 @@ lazy_static! {
 ╠═╬╣
 ╠═╬╣
 ║ ║║
-╚═╩╝",
+╚═╩╝
+",
         None
     );
     pub static ref DOUBLE_EDGE: RenderBox = RenderBox::new(
@@ -414,7 +521,8 @@ lazy_static! {
 ╟─┼╢
 ╟─┼╢
 ║ │║
-╚═╧╝",
+╚═╧╝
+",
         None
     );
     pub static ref LEGACY_WINDOWS_SUBSTITUTIONS: HashMap<RenderBox, RenderBox> = {
@@ -427,4 +535,93 @@ lazy_static! {
         m.insert(HEAVY_HEAD.clone(), SQUARE.clone());
         m
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use console::options::Encoding;
+    use std::ops::Deref;
+
+    #[test]
+    fn test_string() {
+        assert_eq!(
+            ASCII.to_string(),
+            "+--+\n| ||\n|-+|\n| ||\n|-+|\n|-+|\n| ||\n+--+\n"
+        );
+    }
+
+    #[test]
+    fn test_get_top() {
+        assert_eq!(HEAVY.get_top(&[1, 2]), "┏━┳━━┓");
+    }
+
+    #[test]
+    fn test_get_row() {
+        assert_eq!(
+            DOUBLE.get_row(&[3, 2, 1], Some(RenderBoxLevel::Head), None),
+            "╠═══╬══╬═╣"
+        );
+
+        assert_eq!(
+            ASCII.get_row(&[1, 2, 3], Some(RenderBoxLevel::Row), None),
+            "|-+--+---|"
+        );
+
+        assert_eq!(
+            ROUNDED.get_row(&[2, 1, 3], Some(RenderBoxLevel::Foot), None),
+            "├──┼─┼───┤"
+        );
+    }
+
+    #[test]
+    fn test_get_bottom() {
+        assert_eq!(HEAVY.get_bottom(&[1, 2, 3]), "┗━┻━━┻━━━┛");
+    }
+
+    // TODO: Use a macro to generate independent tests for each of them
+    #[test]
+    fn test_static_boxes_build() {
+        ASCII.clone();
+        ASCII2.clone();
+        ASCII_DOUBLE_HEAD.clone();
+        SQUARE.clone();
+        SQUARE_DOUBLE_HEAD.clone();
+        MINIMAL.clone();
+        MINIMAL_HEAVY_HEAD.clone();
+        MINIMAL_DOUBLE_HEAD.clone();
+        SIMPLE.clone();
+        SIMPLE_HEAD.clone();
+        SIMPLE_HEAVY.clone();
+        HORIZONTALS.clone();
+        ROUNDED.clone();
+        HEAVY.clone();
+        HEAVY_EDGE.clone();
+        HEAVY_HEAD.clone();
+        DOUBLE.clone();
+        DOUBLE_EDGE.clone();
+    }
+
+    #[test]
+    fn test_box_substitute() {
+        let mut options = ConsoleOptions {
+            legacy_windows: true,
+            min_width: 1,
+            max_width: 100,
+            is_terminal: true,
+            encoding: Encoding::new("utf-8"),
+            justify: None,
+            overflow: None,
+            no_wrap: None,
+            highlight: None,
+        };
+
+        assert_eq!(HEAVY.substitute(&options, None), SQUARE.clone());
+
+        options.legacy_windows = false;
+        assert_eq!(HEAVY.substitute(&options, None), HEAVY.clone());
+
+        options.encoding = Encoding::new("ascii");
+        assert_eq!(HEAVY.substitute(&options, None), ASCII.clone());
+    }
 }
