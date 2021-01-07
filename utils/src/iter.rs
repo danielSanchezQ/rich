@@ -3,9 +3,10 @@ use std::iter::Peekable;
 
 pub fn loop_first<Values, T>(values: Values) -> impl Iterator<Item = (bool, T)>
 where
-    Values: Iterator<Item = T>,
+    Values: IntoIterator<Item = T>,
 {
     values
+        .into_iter()
         .zip([true].iter().cloned().chain(iter::repeat(false)))
         .map(|(a, b)| (b, a))
 }
@@ -17,7 +18,7 @@ struct LoopLastIterator<T, Values: Iterator<Item = T>> {
 impl<T, Values: Iterator<Item = T>> LoopLastIterator<T, Values> {
     fn new(values: Values) -> Self {
         Self {
-            inner: values.peekable(),
+            inner: values.into_iter().peekable(),
         }
     }
 }
@@ -40,16 +41,16 @@ impl<T, Values: Iterator<Item = T>> Iterator for LoopLastIterator<T, Values> {
 
 pub fn loop_last<Values, T>(values: Values) -> impl Iterator<Item = (bool, T)>
 where
-    Values: Iterator<Item = T>,
+    Values: IntoIterator<Item = T>,
 {
-    LoopLastIterator::new(values)
+    LoopLastIterator::new(values.into_iter())
 }
 
 pub fn loop_first_last<Values, T>(values: Values) -> impl Iterator<Item = (bool, T)>
 where
-    Values: Iterator<Item = T>,
+    Values: IntoIterator<Item = T>,
 {
-    LoopLastIterator::new(values)
+    LoopLastIterator::new(values.into_iter())
         .zip([true].iter().cloned().chain(iter::repeat(false)))
         .map(|((flag1, value), flag2)| (flag1 || flag2, value))
 }
@@ -63,8 +64,8 @@ mod tests {
     #[test]
     fn test_loop_first() {
         let empty_vec: Vec<i32> = Vec::new();
-        assert_eq!(loop_first(empty_vec.iter()).collect::<Vec<_>>(), vec![]);
-        let mut iter = loop_first(TEST_ITERABLE.iter());
+        assert_eq!(loop_first(&empty_vec).collect::<Vec<_>>(), vec![]);
+        let mut iter = loop_first(&TEST_ITERABLE);
         assert_eq!(iter.next().unwrap(), (true, &TEST_ITERABLE[0]));
         assert_eq!(iter.next().unwrap(), (false, &TEST_ITERABLE[1]));
         assert_eq!(iter.next().unwrap(), (false, &TEST_ITERABLE[2]));
@@ -74,8 +75,8 @@ mod tests {
     #[test]
     fn test_loop_last() {
         let empty_vec: Vec<i32> = Vec::new();
-        assert_eq!(loop_last(empty_vec.iter()).collect::<Vec<_>>(), vec![]);
-        let mut iter = loop_last(TEST_ITERABLE.iter());
+        assert_eq!(loop_last(&empty_vec).collect::<Vec<_>>(), vec![]);
+        let mut iter = loop_last(&TEST_ITERABLE);
         assert_eq!(iter.next().unwrap(), (false, &TEST_ITERABLE[0]));
         assert_eq!(iter.next().unwrap(), (false, &TEST_ITERABLE[1]));
         assert_eq!(iter.next().unwrap(), (false, &TEST_ITERABLE[2]));
@@ -85,11 +86,8 @@ mod tests {
     #[test]
     fn test_loop_first_last() {
         let empty_vec: Vec<i32> = Vec::new();
-        assert_eq!(
-            loop_first_last(empty_vec.iter()).collect::<Vec<_>>(),
-            vec![]
-        );
-        let mut iter = loop_first_last(TEST_ITERABLE.iter());
+        assert_eq!(loop_first_last(&empty_vec).collect::<Vec<_>>(), vec![]);
+        let mut iter = loop_first_last(&TEST_ITERABLE);
         assert_eq!(iter.next().unwrap(), (true, &TEST_ITERABLE[0]));
         assert_eq!(iter.next().unwrap(), (false, &TEST_ITERABLE[1]));
         assert_eq!(iter.next().unwrap(), (false, &TEST_ITERABLE[2]));
