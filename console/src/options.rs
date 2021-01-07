@@ -3,6 +3,11 @@ pub struct Encoding(&'static str);
 pub struct JustifyMethod(&'static str);
 pub struct OverflowMethod(&'static str);
 
+impl Encoding {
+    pub fn new(encoding: &'static str) -> Self {
+        Self(encoding)
+    }
+}
 /// Size of the terminal
 pub struct ConsoleDimensions {
     width: usize,
@@ -51,7 +56,7 @@ pub struct UpdateConsoleOptions {
 impl ConsoleOptions {
     pub fn ascii_only(&self) -> bool {
         // TODO: actually check on encodings when they are implemented
-        self.encoding != Encoding("utf8")
+        self.encoding != Encoding("utf-8")
     }
 
     /// Update ConsoleOptions values
