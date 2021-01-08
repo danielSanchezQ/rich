@@ -9,9 +9,9 @@ use lru::LruCache;
 pub use cell_widths::CELL_WIDTHS;
 
 lazy_static! {
-    static ref CODEPOINT_CELL_SIZE_CACHE: Mutex<LruCache<u32, usize>> =
+    pub static ref CODEPOINT_CELL_SIZE_CACHE: Mutex<LruCache<u32, usize>> =
         Mutex::new(LruCache::new(4096));
-    static ref DEFAULT_CELL_LEN_CACHE: Mutex<LruCache<String, usize>> =
+    pub static ref DEFAULT_CELL_LEN_CACHE: Mutex<LruCache<String, usize>> =
         Mutex::new(LruCache::new(4096));
 }
 

@@ -5,6 +5,7 @@ members = [
     "color",
     "style",
     "render_box",
+    "segment",
     "utils"
 ]
 
