@@ -11,3 +11,6 @@ cells = { path = "../cells" }
 itertools = "0.10.0"
 style = { path = "../style" }
 utils = { path = "../utils" }
+
+[dev-dependencies]
+color = { path = "../color" }
