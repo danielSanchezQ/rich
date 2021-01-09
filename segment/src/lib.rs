@@ -145,15 +145,6 @@ impl Segment {
         }
     }
 
-    // fn split_and_crop(&self) -> Vec<Self> {
-    //     if self.text.contains('\n') && !self.is_control {
-    //         let (text, style, _) = self.as_tuple();
-    //         while !text.is_empty() {}
-    //     } else {
-    //         vec![self.clone()]
-    //     }
-    // }
-
     /// Split a sequence of segments in to a list of lines
     pub fn split_lines<'a, Segments>(segments: Segments) -> Vec<Vec<Segment>>
     where
@@ -188,12 +179,61 @@ impl Segment {
         }
         res
     }
+
+    /// Split segments in to lines, and crop lines greater than a given length
+    pub fn split_and_crop_lines<'a, Segments>(
+        segments: Segments,
+        length: usize,
+        style: Option<Style>,
+        padding: Option<bool>,
+        include_new_lines: Option<bool>,
+    ) -> Vec<Vec<Segment>>
+    where
+        Segments: IntoIterator<Item = &'a Segment>,
+    {
+        let include_new_lines = include_new_lines.unwrap_or(true);
+        let mut res: Vec<Vec<Segment>> = Vec::new();
+        let mut line: Vec<Segment> = Vec::new();
+        let new_line_segment = Segment::line(None);
+
+        for segment in segments {
+            if segment.text.contains('\n') && !segment.is_control {
+                let (mut text, style, _) = segment.as_tuple();
+                while !text.is_empty() {
+                    match text.splitn(2, '\n').collect::<Vec<&str>>().as_slice() {
+                        [_text, next] => {
+                            line.push(Segment::new(_text, style.clone(), false));
+                            let mut cropped_line =
+                                Segment::adjust_line_length(&line, length, style.clone(), padding);
+                            if include_new_lines {
+                                cropped_line.push(new_line_segment.clone());
+                            }
+                            res.push(cropped_line);
+                            line = Vec::new();
+                            text = next;
+                        }
+                        [_text] => {
+                            line.push(Segment::new(_text, style.clone(), false));
+                            text = "";
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            } else {
+                line.push(segment.clone());
+            }
+        }
+        if !line.is_empty() {
+            res.push(Segment::adjust_line_length(&line, length, style, padding));
+        }
+        res
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::Segment;
-    use style::{StyleAttribute, StyleBuilder};
+    use style::{Style, StyleAttribute, StyleBuilder};
 
     #[test]
     fn test_line() {
@@ -239,5 +279,57 @@ mod tests {
         ];
         let computed: Vec<Vec<Segment>> = Segment::split_lines(&lines);
         assert_eq!(computed, expected);
+    }
+
+    #[test]
+    fn test_adjust_line_length() {
+        let strike = StyleBuilder::new()
+            .with_attribute(StyleAttribute::STRIKE, true)
+            .build();
+
+        let bold = StyleBuilder::new()
+            .with_attribute(StyleAttribute::BOLD, true)
+            .build();
+
+        let line = [Segment::new("Hello", Some(strike.clone()), false)];
+        let expected = [
+            Segment::new("Hello", Some(strike.clone()), false),
+            Segment::new("     ", Some(bold.clone()), false),
+        ];
+        assert_eq!(
+            Segment::adjust_line_length(&line, 10, Some(bold), None),
+            expected
+        );
+
+        let line = [
+            Segment::new("H", None, false),
+            Segment::new("ello, World!", None, false),
+        ];
+        let expected = [
+            Segment::new("H", None, false),
+            Segment::new("ello", None, false),
+        ];
+        assert_eq!(Segment::adjust_line_length(&line, 5, None, None), expected);
+
+        let line = [Segment::new("Hello", None, false)];
+        assert_eq!(Segment::adjust_line_length(&line, 5, None, None), line);
+    }
+
+    #[test]
+    fn test_split_and_crop_lines() {
+        let original = [
+            Segment::new("Hello\nWorld!\n", None, false),
+            Segment::new("foo", None, false),
+        ];
+        let result = Segment::split_and_crop_lines(&original, 4, None, None, None);
+        let expected = [
+            [Segment::new("Hell", None, false), Segment::line(None)],
+            [Segment::new("Worl", None, false), Segment::line(None)],
+            [
+                Segment::new("foo", None, false),
+                Segment::new(" ", None, false),
+            ],
+        ];
+        assert_eq!(result, expected);
     }
 }
