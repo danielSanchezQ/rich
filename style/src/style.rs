@@ -115,7 +115,7 @@ pub struct Style {
 }
 
 #[derive(Clone)]
-struct StyleBuilder {
+pub struct StyleBuilder {
     color: Option<Color>,
     background_color: Option<Color>,
     attributes_set: HashSet<StyleAttribute>,
@@ -540,7 +540,7 @@ impl Style {
                         (Some(color), _) => Some(color.clone()),
                         (None, other) => other.clone(),
                     };
-                new_style.attributes = (style.attributes & !style.set_attributes)
+                new_style.attributes = (style.attributes & !style2.set_attributes)
                     | (style2.attributes & style2.set_attributes);
                 new_style.set_attributes = style.set_attributes | style2.set_attributes;
                 new_style.link = match (&style.link, &style2.link) {
@@ -1126,18 +1126,20 @@ pub mod tests {
 
     #[test]
     fn test_combine() {
-        let red = StyleBuilder::new()
+        let red_bold = StyleBuilder::new()
             .with_color(Color::parse("red").expect("a red color"))
-            .build();
-        let bold = StyleBuilder::new()
             .with_attribute(StyleAttribute::BOLD, true)
+            .build();
+        let italic = StyleBuilder::new()
+            .with_attribute(StyleAttribute::ITALIC, true)
             .build();
         let expected = StyleBuilder::new()
             .with_color(Color::parse("red").expect("a red color"))
             .with_attribute(StyleAttribute::BOLD, true)
+            .with_attribute(StyleAttribute::ITALIC, true)
             .build();
-        assert_eq!(red.combine(None), red);
-        assert_eq!(red.combine(Some(&bold)), expected)
+        assert_eq!(red_bold.combine(None), red_bold);
+        assert_eq!(red_bold.combine(Some(&italic)), expected)
     }
 
     #[test]

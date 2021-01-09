@@ -1,3 +1,3 @@
 mod style;
 
-pub use style::{Error, Style, StyleAttribute, NULL_STYLE};
+pub use self::style::{Error, Style, StyleAttribute, StyleBuilder, NULL_STYLE};
