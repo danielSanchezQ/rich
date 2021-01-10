@@ -3,6 +3,7 @@ members = [
     "align",
     "cells",
     "console",
+    "containers",
     "color",
     "measure",
     "style",

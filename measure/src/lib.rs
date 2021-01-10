@@ -1,6 +1,10 @@
 use console::traits::Renderable;
 use console::Console;
 
+pub trait Measure {
+    fn measure(&self, console: &Console, max_width: usize) -> Measurement;
+}
+
 /// Stores the minimum and maximum widths (in characters) required to render an object
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Measurement {
