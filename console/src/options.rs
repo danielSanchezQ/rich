@@ -14,12 +14,6 @@ pub struct ConsoleDimensions {
     height: usize,
 }
 
-pub type RenderResult = dyn Iterator<Item = dyn Renderable>;
-
-pub trait Renderable {
-    fn rich_console(&self, console: &Console, options: &ConsoleOptions) -> RenderResult;
-}
-
 /// Options for `rich_console` method
 pub struct ConsoleOptions {
     /// flag for legacy windows
@@ -85,5 +79,3 @@ impl ConsoleOptions {
         }
     }
 }
-
-pub struct Console {}

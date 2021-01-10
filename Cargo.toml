@@ -3,6 +3,7 @@ members = [
     "cells",
     "console",
     "color",
+    "measure",
     "style",
     "render_box",
     "segment",
