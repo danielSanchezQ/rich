@@ -10,6 +10,7 @@ members = [
     "style",
     "render_box",
     "segment",
+    "text",
     "utils"
 ]
 

@@ -31,6 +31,10 @@ impl Segment {
         }
     }
 
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
     /// Get segment attributes packed in a tuple
     pub fn as_tuple(&self) -> (&str, &Option<Style>, bool) {
         (&self.text, &self.style, self.is_control)
