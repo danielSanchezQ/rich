@@ -1,7 +1,18 @@
 #[derive(PartialEq)]
 pub struct Encoding(&'static str);
-pub struct JustifyMethod(&'static str);
-pub struct OverflowMethod(&'static str);
+
+pub enum JustifyMethod {
+    Full,
+    Left,
+    Center,
+    Right,
+}
+
+pub enum OverflowMethod {
+    Crop,
+    Fold,
+    Ellipsis,
+}
 
 impl Encoding {
     pub fn new(encoding: &'static str) -> Self {
